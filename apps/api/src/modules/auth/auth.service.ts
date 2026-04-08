@@ -5,6 +5,8 @@ import {
   BadRequestException,
   Logger,
 } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bull";
+import type { Queue } from "bull";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
 import * as bcrypt from "bcrypt";
@@ -13,9 +15,18 @@ import { PrismaService } from "../../lib/prisma.service";
 import type { RegisterDto } from "./dto/register.dto";
 import type { LoginDto } from "./dto/login.dto";
 import type { JwtPayload } from "@da-apparels/types";
+import { EMAIL_QUEUE, type EmailJob } from "../../workers/email.worker";
 
 const BCRYPT_ROUNDS = 12;
 const REFRESH_TOKEN_BYTES = 64;
+const RESET_PASSWORD_TOKEN_TTL = "1h";
+const DUMMY_PASSWORD_HASH =
+  "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZag4A9hZ0pniS3pSkeCZMt2rtI8xu";
+
+type PasswordResetJwtPayload = JwtPayload & {
+  type?: string;
+  passwordFingerprint?: string;
+};
 
 @Injectable()
 export class AuthService {
@@ -25,13 +36,14 @@ export class AuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
     private config: ConfigService,
+    @InjectQueue(EMAIL_QUEUE) private emailQueue: Queue<EmailJob>,
   ) {}
-
-  // ── Registration ────────────────────────────────────────────────────────────
 
   async register(dto: RegisterDto) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) throw new ConflictException("An account with this email already exists.");
+    if (existing) {
+      throw new ConflictException("An account with this email already exists.");
+    }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
 
@@ -50,12 +62,8 @@ export class AuthService {
     });
 
     this.logger.log(`New user registered: ${user.id}`);
-    // TODO: enqueue email verification job via BullMQ
-
     return this.buildTokenPair(user.id, user.email, user.role);
   }
-
-  // ── Login ───────────────────────────────────────────────────────────────────
 
   async login(dto: LoginDto, ipAddress?: string, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
@@ -64,15 +72,18 @@ export class AuthService {
     });
 
     if (!user || !user.passwordHash) {
-      // Constant-time comparison to prevent timing attacks
-      await bcrypt.compare(dto.password, "$2b$12$invalidhashtopreventtimingattack");
+      await bcrypt.compare(dto.password, DUMMY_PASSWORD_HASH);
       throw new UnauthorizedException("Invalid email or password.");
     }
 
-    if (!user.isActive) throw new UnauthorizedException("This account has been deactivated.");
+    if (!user.isActive) {
+      throw new UnauthorizedException("This account has been deactivated.");
+    }
 
     const passwordMatch = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!passwordMatch) throw new UnauthorizedException("Invalid email or password.");
+    if (!passwordMatch) {
+      throw new UnauthorizedException("Invalid email or password.");
+    }
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -81,21 +92,18 @@ export class AuthService {
 
     const tokens = await this.buildTokenPair(user.id, user.email, user.role);
 
-    // Persist refresh session
     await this.prisma.session.create({
       data: {
         userId: user.id,
         token: tokens.refreshToken,
         userAgent,
         ipAddress,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
 
     return tokens;
   }
-
-  // ── Refresh ─────────────────────────────────────────────────────────────────
 
   async refresh(rawRefreshToken: string) {
     const session = await this.prisma.session.findUnique({
@@ -104,13 +112,16 @@ export class AuthService {
     });
 
     if (!session || session.expiresAt < new Date()) {
-      if (session) await this.prisma.session.delete({ where: { id: session.id } });
+      if (session) {
+        await this.prisma.session.delete({ where: { id: session.id } });
+      }
       throw new UnauthorizedException("Refresh token expired or invalid.");
     }
 
-    if (!session.user.isActive) throw new UnauthorizedException("Account deactivated.");
+    if (!session.user.isActive) {
+      throw new UnauthorizedException("Account deactivated.");
+    }
 
-    // Rotate — delete old session, create new one
     const newTokens = await this.buildTokenPair(
       session.user.id,
       session.user.email,
@@ -128,40 +139,100 @@ export class AuthService {
     return newTokens;
   }
 
-  // ── Logout ──────────────────────────────────────────────────────────────────
-
   async logout(userId: string, refreshToken?: string) {
     if (refreshToken) {
       await this.prisma.session.deleteMany({ where: { token: refreshToken } });
-    } else {
-      // Logout all sessions for this user
-      await this.prisma.session.deleteMany({ where: { userId } });
+      return;
     }
+
+    await this.prisma.session.deleteMany({ where: { userId } });
   }
 
-  // ── Password Reset ───────────────────────────────────────────────────────────
-
   async forgotPassword(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    // Always return success to prevent email enumeration
-    if (!user) return;
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        passwordHash: true,
+        profile: { select: { firstName: true } },
+      },
+    });
 
-    const resetToken = crypto.randomBytes(32).toString("hex");
-    // Store hashed token with 1-hour expiry — use a dedicated table in production
-    // For now, stored in a short-lived Redis key (TODO: implement Redis token store)
+    if (!user || !user.passwordHash) {
+      return;
+    }
+
+    const resetToken = await this.jwt.signAsync(
+      {
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        type: "password-reset",
+        passwordFingerprint: this.buildPasswordFingerprint(user.passwordHash),
+      },
+      {
+        secret: this.config.getOrThrow("JWT_SECRET"),
+        expiresIn: RESET_PASSWORD_TOKEN_TTL,
+      },
+    );
+
+    await this.emailQueue.add(
+      {
+        type: "PASSWORD_RESET",
+        to: user.email,
+        firstName: user.profile?.firstName ?? undefined,
+        resetUrl: this.buildPasswordResetUrl(resetToken),
+      },
+      {
+        attempts: 3,
+        backoff: { type: "exponential", delay: 3000 },
+        removeOnComplete: true,
+      },
+    );
+
     this.logger.log(`Password reset requested for: ${user.id}`);
-    // TODO: enqueue email-queue job with resetToken
   }
 
   async resetPassword(token: string, newPassword: string) {
-    // TODO: validate token from Redis, get userId, then:
-    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    // await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
-    // await this.prisma.session.deleteMany({ where: { userId } }); // force re-login
-    throw new BadRequestException("Password reset flow — Redis token store not yet wired.");
-  }
+    let payload: PasswordResetJwtPayload;
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+    try {
+      payload = await this.jwt.verifyAsync<PasswordResetJwtPayload>(token, {
+        secret: this.config.getOrThrow("JWT_SECRET"),
+      });
+    } catch {
+      throw new BadRequestException("Reset link is invalid or has expired.");
+    }
+
+    if (!payload.sub || payload.type !== "password-reset") {
+      throw new BadRequestException("Reset link is invalid or has expired.");
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, isActive: true, passwordHash: true },
+    });
+
+    if (
+      !user ||
+      !user.isActive ||
+      !user.passwordHash ||
+      payload.passwordFingerprint !== this.buildPasswordFingerprint(user.passwordHash)
+    ) {
+      throw new BadRequestException("Reset link is invalid or has expired.");
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+    await this.prisma.user.update({
+      where: { id: payload.sub },
+      data: { passwordHash },
+    });
+
+    await this.prisma.session.deleteMany({ where: { userId: payload.sub } });
+  }
 
   private async buildTokenPair(userId: string, email: string, role: string) {
     const payload: JwtPayload = { sub: userId, email, role };
@@ -175,5 +246,14 @@ export class AuthService {
     ]);
 
     return { accessToken, refreshToken };
+  }
+
+  private buildPasswordResetUrl(token: string) {
+    const appUrl = this.config.get("NEXT_PUBLIC_APP_URL") ?? "http://localhost:3000";
+    return `${appUrl}/auth/reset-password?token=${encodeURIComponent(token)}`;
+  }
+
+  private buildPasswordFingerprint(passwordHash: string) {
+    return crypto.createHash("sha256").update(passwordHash).digest("hex");
   }
 }

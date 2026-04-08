@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import type { ProductSummary } from "@/lib/api/products";
 import { SmartImage } from "@/components/media/smart-image";
+import { Button } from "@/components/ui/button";
+import { useCartStore } from "@/lib/store/cart.store";
 
 function formatPrice(amount: string, currency: string) {
   return new Intl.NumberFormat("en-NG", {
@@ -15,6 +18,23 @@ function formatPrice(amount: string, currency: string) {
 
 export function ProductCard({ product }: { product: ProductSummary }) {
   const primaryImage = product.images[0];
+  const addItem = useCartStore((state) => state.addItem);
+  const [added, setAdded] = useState(false);
+
+  function handleQuickAdd() {
+    addItem({
+      productId: product.id,
+      productName: product.name,
+      productSlug: product.slug,
+      imageUrl: primaryImage?.url ?? "",
+      variantLabel: product.isBespoke ? "Custom" : undefined,
+      quantity: 1,
+      unitPrice: Number(product.basePrice),
+      currency: product.currency,
+    });
+    setAdded(true);
+    window.setTimeout(() => setAdded(false), 1800);
+  }
 
   return (
     <motion.article
@@ -70,6 +90,21 @@ export function ProductCard({ product }: { product: ProductSummary }) {
           </p>
         </div>
       </Link>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <Link href={`/products/${product.slug}`} className="btn-ghost w-full text-center">
+          View Piece
+        </Link>
+        <Button
+          type="button"
+          variant={added ? "gold" : "primary"}
+          size="sm"
+          className="w-full"
+          onClick={handleQuickAdd}
+        >
+          {added ? "Added" : "Add to Cart"}
+        </Button>
+      </div>
     </motion.article>
   );
 }

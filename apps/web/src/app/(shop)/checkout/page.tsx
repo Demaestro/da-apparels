@@ -89,25 +89,25 @@ export default function CheckoutPage() {
         return;
       }
 
-      const params = new URLSearchParams({
-        mode: "manual",
-        order: orderRes.data.orderNumber,
-      });
+      // Store sensitive payment details in sessionStorage — NOT in the URL.
+      // sessionStorage is tab-scoped, never appears in server logs or browser history,
+      // and is cleared when the tab closes.
+      sessionStorage.setItem(
+        "da_payment_details",
+        JSON.stringify({
+          mode: "manual",
+          order: orderRes.data.orderNumber,
+          orderId: orderRes.data.id,
+          bankName: payRes.data.bankName,
+          accountName: payRes.data.accountName,
+          accountNumber: payRes.data.accountNumber,
+          transferReference: payRes.data.transferReference,
+          contactEmail: payRes.data.contactEmail ?? "",
+          contactWhatsApp: payRes.data.contactWhatsApp ?? "",
+        }),
+      );
 
-      if (payRes.data.contactEmail) {
-        params.set("contactEmail", payRes.data.contactEmail);
-      }
-
-      if (payRes.data.contactWhatsApp) {
-        params.set("contactWhatsApp", payRes.data.contactWhatsApp);
-      }
-
-      params.set("bankName", payRes.data.bankName);
-      params.set("accountName", payRes.data.accountName);
-      params.set("accountNumber", payRes.data.accountNumber);
-      params.set("transferReference", payRes.data.transferReference);
-
-      window.location.href = `/checkout/success?${params.toString()}`;
+      window.location.href = "/checkout/success";
     } catch {
       setError("Something went wrong. Please try again.");
       setStep("review");

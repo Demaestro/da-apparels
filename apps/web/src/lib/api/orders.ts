@@ -65,6 +65,26 @@ export async function initiatePayment(orderId: string) {
   >("/payments/initiate", { orderId });
 }
 
+export async function submitManualPaymentProof(
+  orderId: string,
+  payload: {
+    transferReference: string;
+    senderName?: string;
+    notes?: string;
+  },
+) {
+  return api.post<{
+    acknowledged: true;
+    orderNumber: string;
+    transferReference: string;
+    supportEmail?: string;
+    contactWhatsApp?: string;
+  }>("/payments/manual-proof", {
+    orderId,
+    ...payload,
+  });
+}
+
 export async function fetchMyOrders(page = 1) {
   return api.get<{
     orders: Array<{
@@ -87,8 +107,19 @@ export async function fetchOrder(id: string) {
     status: string;
     totalAmount: string;
     shippingAddress: ShippingAddress;
-    items: CartItem[];
+    items: Array<
+      CartItem & {
+        sku?: string | null;
+      }
+    >;
     timeline: Array<{ status: string; note: string | null; createdAt: string }>;
-    payment: { status: string; paidAt: string | null } | null;
+    payment:
+      | {
+          status: string;
+          provider: string;
+          paidAt: string | null;
+          metadata?: Record<string, unknown> | null;
+        }
+      | null;
   }>(`/orders/${id}`);
 }

@@ -24,13 +24,7 @@ export class ProductsController {
   @Get()
   async list(@Query() dto: ListProductsDto) {
     const result = await this.products.list(dto);
-    return { success: true, ...result };
-  }
-
-  @Public()
-  @Get(":slug")
-  async findOne(@Param("slug") slug: string) {
-    return { success: true, data: await this.products.findBySlug(slug) };
+    return { success: true, data: result };
   }
 
   // ── Authenticated ──────────────────────────────────────────────────────────
@@ -38,6 +32,12 @@ export class ProductsController {
   @Get("recommended")
   async recommended(@Req() req: AuthRequest) {
     return { success: true, data: await this.products.getRecommended(req.user.id) };
+  }
+
+  @Public()
+  @Get(":slug")
+  async findOne(@Param("slug") slug: string) {
+    return { success: true, data: await this.products.findBySlug(slug) };
   }
 
   // ── Admin ──────────────────────────────────────────────────────────────────

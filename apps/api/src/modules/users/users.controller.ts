@@ -39,6 +39,6 @@ export class UsersController {
     @Query("limit") limit = 10,
   ) {
     const result = await this.users.getMyOrders(req.user.id, +page, +limit);
-    return { success: true, ...result };
+    return { success: true, data: result };
   }
 }

@@ -1,340 +1,646 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import Link from "next/link";
+import {
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useQuery } from "@tanstack/react-query";
+import { SmartOverlay2D } from "@/components/ar/smart-overlay-2d";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api/client";
+import { createOverlayFrame, extractGarmentAnchors } from "@/lib/ar/anchors";
+import { getMeasurementScaleProfile } from "@/lib/ar/measurements";
+import {
+  getArBlurRadius,
+  getArCapabilityProfile,
+  subscribeToArCapabilityChanges,
+} from "@/lib/ar/network";
+import type {
+  ArCapabilityProfile,
+  ArLook,
+  ArOverlayFrame,
+  ArTemplate,
+} from "@/lib/ar/types";
+import type { PoseRuntime } from "@/lib/ar/pose";
 import { getArPreviewProducts } from "@/lib/catalogue-data";
+import type { BodyMeasurements } from "@/lib/types";
 
-type ArMode = "idle" | "requesting" | "active" | "no-camera" | "unsupported";
+const MeshOverlayCanvas = dynamic(
+  () =>
+    import("@/components/ar/mesh-overlay-canvas").then((module) => ({
+      default: module.MeshOverlayCanvas,
+    })),
+  {
+    ssr: false,
+  },
+);
+
+type ArMode =
+  | "idle"
+  | "preparing"
+  | "requesting-camera"
+  | "active"
+  | "upload"
+  | "no-camera"
+  | "unsupported"
+  | "error";
+
 type PreviewSource = "camera" | "upload";
-type Template = "column" | "mermaid" | "mini" | "structured" | "suit";
 
-interface GarmentLook {
-  id: string;
-  slug: string;
-  name: string;
-  category: string;
-  image: string;
-  accent: string;
-  secondary: string;
-  template: Template;
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
-function getTemplate(category: string, slug: string): Template {
+function getTemplate(categorySlug: string, slug: string): ArTemplate {
   if (slug.includes("suit") || slug.includes("coat")) return "suit";
   if (slug.includes("mini")) return "mini";
   if (slug.includes("asoebi")) return "structured";
   if (slug.includes("gown")) return "mermaid";
-  if (category.toLowerCase().includes("occasion")) return "column";
+  if (categorySlug.toLowerCase().includes("occasion")) return "column";
   return "column";
 }
 
-function createLooks(): GarmentLook[] {
+function createLooks(): ArLook[] {
   return getArPreviewProducts().map((product) => {
-    const colors = product.fabricOptions[0]?.colorOptions ?? ["#C9A94A", "#0A0A0A"];
+    const palette = product.fabricOptions[0]?.colorOptions ?? ["#C9A94A", "#171717", "#F5F1E8"];
+
     return {
       id: product.id,
       slug: product.slug,
       name: product.name,
       category: product.category.name,
       image: product.images[0]?.url ?? "/catalogue/safari-sundress.jpg",
-      accent: colors[0] ?? "#C9A94A",
-      secondary: colors[1] ?? "#0A0A0A",
+      accent: palette[0] ?? "#C9A94A",
+      secondary: palette[1] ?? "#171717",
+      palette,
       template: getTemplate(product.category.slug, product.slug),
     };
   });
 }
 
-function StudioOverlay({
-  look,
-  opacity,
-  scale,
-  offsetX,
-  offsetY,
-}: {
-  look: GarmentLook;
-  opacity: number;
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-}) {
-  const transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
-
-  return (
-    <div
-      className="absolute inset-0 pointer-events-none flex items-center justify-center"
-      style={{ opacity, transform, transformOrigin: "center center" }}
-    >
-      <svg
-        viewBox="0 0 300 620"
-        className="h-[78%] w-[68%] drop-shadow-[0_20px_40px_rgba(10,10,10,0.28)]"
-        aria-hidden="true"
-      >
-        <defs>
-          <linearGradient id={`grad-${look.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor={look.accent} stopOpacity="0.85" />
-            <stop offset="100%" stopColor={look.secondary} stopOpacity="0.55" />
-          </linearGradient>
-        </defs>
-
-        {look.template === "suit" && (
-          <>
-            <path d="M96 48c20-30 88-30 108 0l28 84-33 20-10 126H111L101 152l-33-20 28-84Z" fill={`url(#grad-${look.id})`} />
-            <path d="M128 278h52v246h-52z" fill={`url(#grad-${look.id})`} opacity="0.92" />
-            <path d="M180 278h52v246h-52z" fill={`url(#grad-${look.id})`} opacity="0.78" />
-            <path d="M111 100h78l-22 48 13 72h-60l13-72-22-48Z" fill="rgba(250,248,243,0.2)" />
-          </>
-        )}
-
-        {look.template === "mini" && (
-          <path d="M105 72c18-24 72-24 90 0l24 72-22 18-18 30v86c0 20-16 36-36 36h-6c-20 0-36-16-36-36v-86l-18-30-22-18 24-72Z" fill={`url(#grad-${look.id})`} />
-        )}
-
-        {look.template === "structured" && (
-          <path d="M96 62c20-24 88-24 108 0l24 72-16 16-2 320c0 66-42 110-84 110s-84-44-84-110l-2-320-16-16 24-72Z" fill={`url(#grad-${look.id})`} />
-        )}
-
-        {look.template === "mermaid" && (
-          <path d="M96 62c20-24 88-24 108 0l24 72-18 18-10 220c0 44-10 80-28 112l40 102H88l40-102c-18-32-28-68-28-112l-10-220-18-18 24-72Z" fill={`url(#grad-${look.id})`} />
-        )}
-
-        {look.template === "column" && (
-          <path d="M96 62c20-24 88-24 108 0l24 72-18 18-10 326c0 52-34 102-74 102s-74-50-74-102L42 152l-18-18 24-72Z" fill={`url(#grad-${look.id})`} />
-        )}
-
-        <path d="M110 112c26 8 54 8 80 0" stroke="rgba(250,248,243,0.5)" strokeWidth="6" strokeLinecap="round" />
-        <path d="M88 200c42 24 82 24 124 0" stroke="rgba(250,248,243,0.35)" strokeWidth="4" strokeLinecap="round" />
-        <path d="M100 300c38 18 64 18 100 0" stroke="rgba(250,248,243,0.25)" strokeWidth="4" strokeLinecap="round" />
-      </svg>
-    </div>
-  );
+function readMeasurements(response?: { success: boolean; data?: BodyMeasurements }) {
+  return response?.success ? response.data ?? null : null;
 }
 
-function Control({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block space-y-2">
-      <div className="flex items-center justify-between font-sans text-[11px] tracking-widest uppercase text-obsidian-400">
-        <span>{label}</span>
-        <span>{value}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full accent-gold"
-      />
-    </label>
-  );
+function sampleAmbientLight(
+  source: HTMLVideoElement | HTMLImageElement,
+  canvas: HTMLCanvasElement | null,
+) {
+  if (!canvas) {
+    return 0.62;
+  }
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return 0.62;
+  }
+
+  const width = 24;
+  const height = 24;
+  canvas.width = width;
+  canvas.height = height;
+  context.drawImage(source, 0, 0, width, height);
+
+  const { data } = context.getImageData(0, 0, width, height);
+  let total = 0;
+
+  for (let index = 0; index < data.length; index += 4) {
+    total += data[index] * 0.2126 + data[index + 1] * 0.7152 + data[index + 2] * 0.0722;
+  }
+
+  return clamp(total / ((data.length / 4) * 255), 0.22, 0.96);
+}
+
+function describeProfile(profile: ArCapabilityProfile) {
+  if (profile.overlayMode === "smart-2d") {
+    return "3G smart overlay";
+  }
+
+  return profile.assetQuality === "high" ? "3D mesh overlay" : "Balanced mesh overlay";
 }
 
 export function ArTryOnClient({ initialPieceSlug }: { initialPieceSlug?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const uploadImageRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const brightnessCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const poseRuntimeRef = useRef<PoseRuntime | null>(null);
+  const animationFrameRef = useRef<number>();
+  const lastEstimateRef = useRef(0);
+  const estimatingRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const looks = useMemo(createLooks, []);
   const initialLook =
-    looks.find((item) => item.slug === initialPieceSlug) ??
+    looks.find((look) => look.slug === initialPieceSlug) ??
     looks[0];
 
   const [mode, setMode] = useState<ArMode>("idle");
   const [previewSource, setPreviewSource] = useState<PreviewSource>("camera");
-  const [selectedLook, setSelectedLook] = useState<GarmentLook>(initialLook);
-  const [streamActive, setStreamActive] = useState(false);
+  const [selectedLook, setSelectedLook] = useState<ArLook>(initialLook);
+  const [selectedColor, setSelectedColor] = useState(initialLook.palette[0] ?? initialLook.accent);
   const [uploadedPreview, setUploadedPreview] = useState<string | null>(null);
-  const [opacity, setOpacity] = useState(78);
-  const [scale, setScale] = useState(100);
-  const [offsetX, setOffsetX] = useState(0);
-  const [offsetY, setOffsetY] = useState(16);
+  const [capabilityProfile, setCapabilityProfile] = useState<ArCapabilityProfile>(() =>
+    getArCapabilityProfile(),
+  );
+  const [runtimeStatus, setRuntimeStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    "idle",
+  );
+  const [trackingStatus, setTrackingStatus] = useState<
+    "idle" | "aligning" | "tracking" | "lost"
+  >("idle");
+  const [overlayFrame, setOverlayFrame] = useState<ArOverlayFrame | null>(null);
+  const [ambientLight, setAmbientLight] = useState(0.62);
+  const [assetReady, setAssetReady] = useState(false);
+  const [runtimeRequested, setRuntimeRequested] = useState(false);
+
+  const deferredFrame = useDeferredValue(overlayFrame);
+  const blurRadius = getArBlurRadius(capabilityProfile);
+
+  const { data: measurementResponse } = useQuery({
+    queryKey: ["measurements", "ar"],
+    queryFn: () => api.get<BodyMeasurements>("/users/me/measurements"),
+    enabled: runtimeRequested,
+    retry: false,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const measurementProfile = useMemo(
+    () => getMeasurementScaleProfile(readMeasurements(measurementResponse)),
+    [measurementResponse],
+  );
+
+  const stopTracking = useCallback(() => {
+    if (animationFrameRef.current) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = undefined;
+    }
+    estimatingRef.current = false;
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    stopTracking();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+  }, [stopTracking]);
+
+  const updateOverlay = useCallback(
+    async (
+      source: HTMLVideoElement | HTMLImageElement,
+      options: { flipHorizontal: boolean },
+    ) => {
+      const runtime = poseRuntimeRef.current;
+      if (!runtime) {
+        return;
+      }
+
+      const keypoints = await runtime.estimate(source, options);
+      const sourceWidth =
+        source instanceof HTMLVideoElement
+          ? source.videoWidth || source.clientWidth
+          : source.naturalWidth || source.width || source.clientWidth;
+      const sourceHeight =
+        source instanceof HTMLVideoElement
+          ? source.videoHeight || source.clientHeight
+          : source.naturalHeight || source.height || source.clientHeight;
+
+      if (!keypoints || !sourceWidth || !sourceHeight) {
+        startTransition(() => {
+          setOverlayFrame(null);
+          setTrackingStatus("lost");
+        });
+        return;
+      }
+
+      const anchors = extractGarmentAnchors(keypoints);
+      if (!anchors) {
+        startTransition(() => {
+          setOverlayFrame(null);
+          setTrackingStatus("lost");
+        });
+        return;
+      }
+
+      const nextFrame = createOverlayFrame(
+        anchors,
+        sourceWidth,
+        sourceHeight,
+        measurementProfile,
+        selectedLook.template,
+      );
+      const nextBrightness = sampleAmbientLight(source, brightnessCanvasRef.current);
+
+      startTransition(() => {
+        setOverlayFrame(nextFrame);
+        setAmbientLight(nextBrightness);
+        setTrackingStatus("tracking");
+      });
+    },
+    [measurementProfile, selectedLook.template],
+  );
+
+  const ensurePoseRuntime = useCallback(async (profile: ArCapabilityProfile) => {
+    if (poseRuntimeRef.current) {
+      return poseRuntimeRef.current;
+    }
+
+    setRuntimeStatus("loading");
+    setRuntimeRequested(true);
+
+    const { createPoseRuntime } = await import("@/lib/ar/pose");
+    const runtime = await createPoseRuntime({
+      preferredBackend: profile.preferredTfBackend,
+    });
+
+    if (!mountedRef.current) {
+      runtime.dispose();
+      throw new Error("AR session was closed before the runtime finished loading.");
+    }
+
+    poseRuntimeRef.current = runtime;
+    setRuntimeStatus("ready");
+    return runtime;
+  }, []);
+
+  const beginTracking = useCallback(() => {
+    stopTracking();
+    setTrackingStatus("aligning");
+
+    const intervalMs =
+      capabilityProfile.assetQuality === "low"
+        ? 170
+        : capabilityProfile.assetQuality === "medium"
+          ? 120
+          : 85;
+
+    const tick = async () => {
+      animationFrameRef.current = window.requestAnimationFrame(tick);
+
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || !poseRuntimeRef.current || estimatingRef.current) {
+        return;
+      }
+
+      const now = performance.now();
+      if (now - lastEstimateRef.current < intervalMs) {
+        return;
+      }
+
+      lastEstimateRef.current = now;
+      estimatingRef.current = true;
+
+      try {
+        await updateOverlay(video, { flipHorizontal: true });
+      } finally {
+        estimatingRef.current = false;
+      }
+    };
+
+    animationFrameRef.current = window.requestAnimationFrame(tick);
+  }, [capabilityProfile.assetQuality, stopTracking, updateOverlay]);
+
+  const handleUpload = useCallback(
+    async (file?: File) => {
+      if (!file) {
+        return;
+      }
+
+      const profile = getArCapabilityProfile();
+      setCapabilityProfile(profile);
+      setRuntimeRequested(true);
+      setMode("preparing");
+      setPreviewSource("upload");
+      setTrackingStatus("aligning");
+      stopCamera();
+
+      try {
+        await ensurePoseRuntime(profile);
+        setUploadedPreview((current) => {
+          if (current) {
+            URL.revokeObjectURL(current);
+          }
+
+          return URL.createObjectURL(file);
+        });
+        setMode("upload");
+      } catch {
+        setRuntimeStatus("error");
+        setMode("error");
+      }
+    },
+    [ensurePoseRuntime, stopCamera],
+  );
 
   const startCamera = useCallback(async () => {
-    setMode("requesting");
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setMode("unsupported");
+      return;
+    }
+
+    const profile = getArCapabilityProfile();
+    setCapabilityProfile(profile);
+    setRuntimeRequested(true);
+    setMode("preparing");
+    setPreviewSource("camera");
+    setTrackingStatus("aligning");
+    stopCamera();
+
     try {
+      await ensurePoseRuntime(profile);
+      setMode("requesting-camera");
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
-          width: { ideal: 960 },
-          height: { ideal: 1280 },
+          width: { ideal: profile.assetQuality === "low" ? 720 : 960 },
+          height: { ideal: profile.assetQuality === "low" ? 960 : 1280 },
+          frameRate: { ideal: profile.assetQuality === "low" ? 20 : 24, max: 30 },
         },
         audio: false,
       });
 
       streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
 
-      setPreviewSource("camera");
-      setStreamActive(true);
-      setMode("active");
-    } catch (error) {
-      const exception = error as DOMException;
-      setMode(exception.name === "NotAllowedError" ? "no-camera" : "unsupported");
-    }
-  }, []);
+      setUploadedPreview((current) => {
+        if (current) {
+          URL.revokeObjectURL(current);
+        }
 
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    setStreamActive(false);
-    setMode("idle");
-  }, []);
+        return null;
+      });
+      setMode("active");
+      beginTracking();
+    } catch (error) {
+      const domException = error as DOMException;
+      setRuntimeStatus((current) => (current === "loading" ? "error" : current));
+      setMode(domException?.name === "NotAllowedError" ? "no-camera" : "unsupported");
+    }
+  }, [beginTracking, ensurePoseRuntime, stopCamera]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    setCapabilityProfile(getArCapabilityProfile());
+
+    const unsubscribe = subscribeToArCapabilityChanges((profile) => {
+      setCapabilityProfile(profile);
+    });
+
+    return () => {
+      mountedRef.current = false;
+      unsubscribe();
+      stopCamera();
+      poseRuntimeRef.current?.dispose();
+      poseRuntimeRef.current = null;
+    };
+  }, [stopCamera]);
+
+  useEffect(() => {
+    setSelectedColor(selectedLook.palette[0] ?? selectedLook.accent);
+  }, [selectedLook]);
+
+  useEffect(() => {
+    setAssetReady(false);
+    const timer = window.setTimeout(
+      () => setAssetReady(true),
+      capabilityProfile.assetQuality === "low" ? 720 : capabilityProfile.assetQuality === "medium" ? 500 : 360,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [capabilityProfile.assetQuality, selectedColor, selectedLook.id]);
+
+  useEffect(() => {
+    if (
+      mode !== "upload" ||
+      !uploadedPreview ||
+      !poseRuntimeRef.current ||
+      !uploadImageRef.current ||
+      !uploadImageRef.current.complete
+    ) {
+      return;
+    }
+
+    void updateOverlay(uploadImageRef.current, { flipHorizontal: false });
+  }, [measurementProfile, mode, selectedLook.template, updateOverlay, uploadedPreview]);
+
+  useEffect(() => {
+    if (mode === "active" && previewSource === "camera" && streamRef.current) {
+      beginTracking();
+    }
+  }, [beginTracking, mode, previewSource]);
 
   useEffect(() => {
     return () => {
-      stopCamera();
-      if (uploadedPreview) URL.revokeObjectURL(uploadedPreview);
-    };
-  }, [stopCamera, uploadedPreview]);
-
-  useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.visibilityState === "hidden" && streamRef.current) {
-        stopCamera();
+      if (uploadedPreview) {
+        URL.revokeObjectURL(uploadedPreview);
       }
-    }
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [stopCamera]);
-
-  function resetOverlay() {
-    setOpacity(78);
-    setScale(100);
-    setOffsetX(0);
-    setOffsetY(16);
-  }
-
-  function handleUpload(file?: File) {
-    if (!file) return;
-    if (uploadedPreview) URL.revokeObjectURL(uploadedPreview);
-    const nextUrl = URL.createObjectURL(file);
-    setUploadedPreview(nextUrl);
-    setPreviewSource("upload");
-    stopCamera();
-  }
+    };
+  }, [uploadedPreview]);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-24 sm:pt-32 pb-16">
-      <div className="mb-8 sm:mb-12">
-        <p className="font-sans text-xs tracking-[0.3em] uppercase text-gold mb-3">DA Apparels</p>
-        <h1 className="font-display text-4xl sm:text-5xl text-obsidian mb-3">AR Preview Studio</h1>
-        <p className="font-sans text-sm text-obsidian-400 max-w-2xl leading-relaxed">
-          Preview a stylized live drape of any featured piece on your camera or your own uploaded photo.
-          It is a faster, lighter studio preview built for mobile devices while the full body-tracking pipeline is integrated.
-        </p>
+    <div className="mx-auto max-w-7xl px-4 pb-16 pt-24 sm:px-6 sm:pt-32">
+      <div className="mb-8 flex flex-col gap-4 sm:mb-12 lg:flex-row lg:items-end lg:justify-between">
+        <div className="max-w-3xl">
+          <p className="mb-3 font-sans text-xs uppercase tracking-[0.34em] text-gold">
+            Smart AR Try-On
+          </p>
+          <h1 className="font-display text-4xl text-obsidian sm:text-5xl">
+            Lightweight mobile AR built for real-world bandwidth.
+          </h1>
+          <p className="mt-4 max-w-2xl font-sans text-sm leading-loose text-obsidian-500">
+            The camera shell stays light until you tap start. TensorFlow.js body tracking runs on
+            the phone, then the app picks a 3G-safe 2D overlay or a higher-fidelity mesh overlay
+            automatically based on connection quality and device strength.
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="border border-gold/20 bg-gold/5 px-4 py-3">
+            <p className="font-sans text-[10px] uppercase tracking-[0.28em] text-gold">Connection</p>
+            <p className="mt-2 font-serif text-lg text-obsidian">{capabilityProfile.effectiveType.toUpperCase()}</p>
+          </div>
+          <div className="border border-obsidian-100 px-4 py-3">
+            <p className="font-sans text-[10px] uppercase tracking-[0.28em] text-gold">Render Mode</p>
+            <p className="mt-2 font-serif text-lg text-obsidian">{describeProfile(capabilityProfile)}</p>
+          </div>
+          <div className="border border-obsidian-100 px-4 py-3">
+            <p className="font-sans text-[10px] uppercase tracking-[0.28em] text-gold">Fit Intelligence</p>
+            <p className="mt-2 font-serif text-lg text-obsidian">
+              {measurementResponse?.success ? "Vault measurements" : "Default profile"}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 lg:gap-10">
+      <div className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:gap-12">
         <div className="space-y-4">
-          <div className="relative aspect-[3/4] sm:aspect-[4/3] lg:aspect-[3/4] overflow-hidden bg-obsidian rounded-none">
+          <div className="relative aspect-[4/5] overflow-hidden bg-obsidian">
+            <Image
+              src={selectedLook.image}
+              alt={selectedLook.name}
+              fill
+              priority
+              className="object-cover opacity-20 blur-2xl scale-105"
+            />
+
             {previewSource === "camera" && (
               <video
                 ref={videoRef}
                 autoPlay
-                playsInline
                 muted
-                className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ${
-                  streamActive ? "opacity-100" : "opacity-0"
+                playsInline
+                className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+                  mode === "active" ? "opacity-100" : "opacity-0"
                 }`}
                 style={{ transform: "scaleX(-1)" }}
               />
             )}
 
             {previewSource === "upload" && uploadedPreview && (
-              <Image
+              <img
+                ref={uploadImageRef}
                 src={uploadedPreview}
                 alt="Uploaded style preview"
-                fill
-                unoptimized
-                className="object-cover"
+                className="absolute inset-0 h-full w-full object-cover"
+                onLoad={() => {
+                  if (uploadImageRef.current) {
+                    void updateOverlay(uploadImageRef.current, { flipHorizontal: false });
+                  }
+                }}
               />
             )}
 
-            {(streamActive || uploadedPreview) && (
-              <StudioOverlay
+            {capabilityProfile.overlayMode === "mesh-3d" ? (
+              <MeshOverlayCanvas
                 look={selectedLook}
-                opacity={opacity / 100}
-                scale={scale / 100}
-                offsetX={offsetX}
-                offsetY={offsetY}
+                selectedColor={selectedColor}
+                frame={deferredFrame}
+                brightness={ambientLight}
+                quality={capabilityProfile.assetQuality}
+                blurRadius={blurRadius}
+                assetReady={assetReady}
+              />
+            ) : (
+              <SmartOverlay2D
+                look={selectedLook}
+                frame={deferredFrame}
+                brightness={ambientLight}
+                blurRadius={blurRadius}
+                assetReady={assetReady}
               />
             )}
 
-            {!streamActive && !uploadedPreview && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 gap-4">
-                {mode === "idle" && (
-                  <>
-                    <div className="w-16 h-16 border border-gold/30 rounded-full flex items-center justify-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
-                      </svg>
-                    </div>
-                    <p className="font-serif text-xl text-ivory">Preview a piece live</p>
-                    <p className="font-sans text-xs text-obsidian-300 leading-loose max-w-xs">
-                      Use your front camera or upload a full-body photo to align the look.
-                    </p>
-                  </>
-                )}
-                {mode === "requesting" && (
-                  <div className="space-y-3">
-                    <div className="h-6 w-6 border-2 border-gold border-t-transparent rounded-full animate-spin mx-auto" />
-                    <p className="font-sans text-xs text-obsidian-300">Requesting cameraâ€¦</p>
+            {!deferredFrame && (
+              <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+                <div className="max-w-md space-y-4">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-gold/25">
+                    <span className="font-serif text-2xl text-gold">AR</span>
                   </div>
-                )}
-                {mode === "no-camera" && (
-                  <>
-                    <p className="font-serif text-lg text-ivory">Camera access denied</p>
-                    <p className="font-sans text-xs text-obsidian-300 leading-loose max-w-xs">
-                      Allow camera access in your browser settings, or switch to photo upload below.
-                    </p>
-                  </>
-                )}
-                {mode === "unsupported" && (
-                  <>
-                    <p className="font-serif text-lg text-ivory">Camera unavailable</p>
-                    <p className="font-sans text-xs text-obsidian-300 leading-loose max-w-xs">
-                      Continue with the upload option if this device does not expose a front camera.
-                    </p>
-                  </>
-                )}
+                  <p className="font-serif text-2xl text-ivory-warm">
+                    {mode === "preparing" || mode === "requesting-camera"
+                      ? "Preparing local tracking"
+                      : "Start the try-on session"}
+                  </p>
+                  <p className="font-sans text-xs leading-loose text-obsidian-200">
+                    {mode === "preparing" || mode === "requesting-camera"
+                      ? "Loading the body tracker and the optimized overlay pipeline."
+                      : "Use the front camera or upload a full-body image. The garment will pin to shoulders, waist, hips, and lower-body anchors automatically."}
+                  </p>
+                </div>
               </div>
             )}
 
-            <div className="absolute top-3 right-3 bg-obsidian/60 backdrop-blur-sm px-2 py-1">
-              <p className="font-sans text-[9px] tracking-widest uppercase text-gold/80">Live Studio</p>
+            <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+              <span className="bg-obsidian/75 px-3 py-1 font-sans text-[10px] uppercase tracking-[0.26em] text-gold backdrop-blur">
+                {describeProfile(capabilityProfile)}
+              </span>
+              <span className="bg-white/90 px-3 py-1 font-sans text-[10px] uppercase tracking-[0.26em] text-obsidian backdrop-blur">
+                TF.js {runtimeStatus === "ready" ? poseRuntimeRef.current?.backend?.toUpperCase() : capabilityProfile.preferredTfBackend.toUpperCase()}
+              </span>
             </div>
+
+            <div className="absolute bottom-3 left-3 right-3 grid gap-2 sm:grid-cols-3">
+              <div className="bg-obsidian/72 px-3 py-2 backdrop-blur-sm">
+                <p className="font-sans text-[10px] uppercase tracking-[0.24em] text-gold">Tracking</p>
+                <p className="mt-1 font-serif text-sm text-ivory-warm">
+                  {trackingStatus === "tracking"
+                    ? "Locked on body anchors"
+                    : trackingStatus === "aligning"
+                      ? "Align torso in frame"
+                      : trackingStatus === "lost"
+                        ? "Recenter shoulders and hips"
+                        : "Idle"}
+                </p>
+              </div>
+              <div className="bg-obsidian/72 px-3 py-2 backdrop-blur-sm">
+                <p className="font-sans text-[10px] uppercase tracking-[0.24em] text-gold">Lighting</p>
+                <p className="mt-1 font-serif text-sm text-ivory-warm">
+                  {ambientLight > 0.72 ? "Bright scene" : ambientLight > 0.48 ? "Balanced scene" : "Low light"}
+                </p>
+              </div>
+              <div className="bg-obsidian/72 px-3 py-2 backdrop-blur-sm">
+                <p className="font-sans text-[10px] uppercase tracking-[0.24em] text-gold">Measurements</p>
+                <p className="mt-1 font-serif text-sm text-ivory-warm">
+                  {measurementResponse?.success ? "Scaled from vault" : "Using house fit"}
+                </p>
+              </div>
+            </div>
+
+            <canvas ref={brightnessCanvasRef} className="hidden" />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <Button variant="gold" size="sm" onClick={startCamera}>
-              Start Camera
+            <Button
+              variant="gold"
+              size="sm"
+              onClick={startCamera}
+              loading={mode === "preparing" || mode === "requesting-camera"}
+            >
+              Start Smart Try-On
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
               Upload Photo
             </Button>
-            <Button variant="ghost" size="sm" onClick={resetOverlay}>
-              Reset Fit
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setOverlayFrame(null);
+                setTrackingStatus("idle");
+                stopCamera();
+                setUploadedPreview((current) => {
+                  if (current) {
+                    URL.revokeObjectURL(current);
+                  }
+
+                  return null;
+                });
+                setMode("idle");
+              }}
+            >
+              Reset Session
             </Button>
           </div>
 
@@ -345,56 +651,128 @@ export function ArTryOnClient({ initialPieceSlug }: { initialPieceSlug?: string 
             className="hidden"
             onChange={(event) => handleUpload(event.target.files?.[0])}
           />
+
+          <div className="border border-obsidian-100 p-5">
+            <p className="font-sans text-xs uppercase tracking-[0.28em] text-gold">
+              Runtime Notes
+            </p>
+            <p className="mt-3 font-sans text-sm leading-loose text-obsidian-500">
+              {capabilityProfile.reason}
+            </p>
+            {(mode === "no-camera" || mode === "unsupported" || mode === "error") && (
+              <p className="mt-3 font-sans text-xs text-error">
+                {mode === "no-camera"
+                  ? "Camera permission was denied. You can still use photo upload."
+                  : "This browser could not start the live camera path. Upload mode remains available."}
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="space-y-6">
-          <div className="border border-obsidian-100 bg-white p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="font-sans text-xs tracking-widest uppercase text-gold">Selected Piece</p>
-              {streamActive && (
-                <button onClick={stopCamera} className="font-sans text-[11px] tracking-widest uppercase text-obsidian-400 hover:text-gold transition-colors">
-                  Stop Camera
-                </button>
-              )}
+          <div className="border border-obsidian-100 bg-white p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-sans text-xs uppercase tracking-[0.28em] text-gold">
+                  Selected Piece
+                </p>
+                <h2 className="mt-2 font-display text-3xl text-obsidian">{selectedLook.name}</h2>
+                <p className="mt-2 font-sans text-sm leading-loose text-obsidian-500">
+                  {selectedLook.category}. Smart overlay assets load only after you start try-on.
+                </p>
+              </div>
+              <Link href={`/products/${selectedLook.slug}`} className="btn-ghost shrink-0">
+                View Piece
+              </Link>
             </div>
 
-            <div className="relative aspect-[4/5] overflow-hidden bg-obsidian-50">
-              <Image src={selectedLook.image} alt={selectedLook.name} fill className="object-cover" />
-            </div>
-
-            <div>
-              <p className="font-serif text-lg text-obsidian">{selectedLook.name}</p>
-              <p className="font-sans text-xs text-obsidian-400 mt-1">{selectedLook.category}</p>
-            </div>
-          </div>
-
-          <div className="border border-obsidian-100 bg-white p-5 space-y-4">
-            <p className="font-sans text-xs tracking-widest uppercase text-gold">Fit Controls</p>
-            <Control label="Opacity" value={opacity} min={30} max={95} step={1} onChange={setOpacity} />
-            <Control label="Scale" value={scale} min={70} max={130} step={1} onChange={setScale} />
-            <Control label="Horizontal" value={offsetX} min={-70} max={70} step={1} onChange={setOffsetX} />
-            <Control label="Vertical" value={offsetY} min={-80} max={80} step={1} onChange={setOffsetY} />
-          </div>
-
-          <div className="space-y-3">
-            <p className="font-sans text-xs tracking-widest uppercase text-gold">Choose a Piece</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
               {looks.map((look) => (
                 <button
                   key={look.id}
+                  type="button"
                   onClick={() => setSelectedLook(look)}
-                  className={`border p-2 text-left transition-all duration-200 ${
-                    selectedLook.id === look.id
-                      ? "border-gold bg-gold/5"
-                      : "border-obsidian-100 hover:border-obsidian-300"
+                  className={`text-left transition-all ${
+                    selectedLook.id === look.id ? "opacity-100" : "opacity-65 hover:opacity-100"
                   }`}
                 >
-                  <div className="relative aspect-[4/5] overflow-hidden bg-obsidian-50">
-                    <Image src={look.image} alt={look.name} fill className="object-cover" />
+                  <div className="relative aspect-[3/4] overflow-hidden bg-obsidian-50">
+                    <Image
+                      src={look.image}
+                      alt={look.name}
+                      fill
+                      sizes="(max-width: 1024px) 33vw, 18vw"
+                      className="object-cover"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-obsidian/90 to-transparent px-3 py-3">
+                      <p className="font-sans text-[10px] uppercase tracking-[0.2em] text-gold">
+                        {look.category}
+                      </p>
+                      <p className="mt-1 font-serif text-sm text-ivory-warm">{look.name}</p>
+                    </div>
                   </div>
-                  <p className="mt-2 font-serif text-sm text-obsidian line-clamp-2">{look.name}</p>
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div className="border border-obsidian-100 bg-white p-6">
+            <p className="font-sans text-xs uppercase tracking-[0.28em] text-gold">
+              Fabric Palette
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {selectedLook.palette.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setSelectedColor(color)}
+                  className={`flex items-center gap-3 border px-3 py-2 ${
+                    selectedColor === color
+                      ? "border-obsidian bg-obsidian text-ivory-warm"
+                      : "border-obsidian-100 text-obsidian"
+                  }`}
+                >
+                  <span
+                    className="h-5 w-5 rounded-full border border-black/10"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="font-sans text-[10px] uppercase tracking-[0.22em]">
+                    {color}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-4 font-sans text-xs leading-loose text-obsidian-400">
+              The overlay texture is generated from the selected fabric palette, then shaded using
+              the live camera brightness so it reads more like fabric and less like a sticker.
+            </p>
+          </div>
+
+          <div className="border border-gold/20 bg-gold/5 p-6">
+            <p className="font-sans text-xs uppercase tracking-[0.28em] text-gold">
+              Optimization Pipeline
+            </p>
+            <ol className="mt-4 space-y-3 font-sans text-sm leading-loose text-obsidian-500">
+              <li>1. A lightweight route shell loads first.</li>
+              <li>2. TensorFlow.js and the AR renderer lazy-load only after you tap try-on.</li>
+              <li>3. BlazePose runs on-device, then the overlay mode switches by network and GPU profile.</li>
+              <li>4. Saved vault measurements tune width, drape, and garment proportion automatically.</li>
+            </ol>
+          </div>
+
+          <div className="border border-obsidian-100 p-6">
+            <p className="font-sans text-xs uppercase tracking-[0.28em] text-gold">
+              Fit Tuning
+            </p>
+            <p className="mt-3 font-sans text-sm leading-loose text-obsidian-500">
+              For the cleanest result, keep your full torso in view and save your measurements in
+              the vault before starting. The current session uses{" "}
+              {measurementResponse?.success ? "your saved encrypted measurements" : "the default DA fit profile"}.
+            </p>
+            <div className="mt-5">
+              <Link href="/account/vault" className="btn-ghost">
+                Open Measurement Vault
+              </Link>
             </div>
           </div>
         </div>

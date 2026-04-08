@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { api } from "@/lib/api/client";
@@ -13,14 +14,19 @@ interface Analytics {
   fabricTracking: { name: string; category: string; timesSelected: number }[];
 }
 
+type Period = "7d" | "30d" | "90d" | "all";
+const PERIODS: Period[] = ["7d", "30d", "90d", "all"];
+
 function formatNGN(amount: number) {
-  return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    minimumFractionDigits: 0,
+  }).format(amount);
 }
 
-const PERIODS = ["7d", "30d", "90d", "all"] as const;
-
 export default function AdminDashboardPage() {
-  const [period, setPeriod] = useQueryState<"7d" | "30d" | "90d" | "all">("30d");
+  const [period, setPeriod] = useState<Period>("30d");
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-analytics", period],
@@ -92,7 +98,11 @@ export default function AdminDashboardPage() {
         <div className="border border-obsidian-100 bg-white p-6">
           <p className="font-sans text-xs tracking-widest uppercase text-gold mb-6">Top Products</p>
           {isLoading ? (
-            <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 skeleton" />)}</div>
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-8 skeleton" />
+              ))}
+            </div>
           ) : analytics?.topProducts.length ? (
             <table className="w-full font-sans text-xs">
               <thead>
@@ -119,9 +129,15 @@ export default function AdminDashboardPage() {
 
         {/* Fabric tracking */}
         <div className="border border-obsidian-100 bg-white p-6">
-          <p className="font-sans text-xs tracking-widest uppercase text-gold mb-6">Fabric Selection Trends</p>
+          <p className="font-sans text-xs tracking-widest uppercase text-gold mb-6">
+            Fabric Selection Trends
+          </p>
           {isLoading ? (
-            <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-8 skeleton" />)}</div>
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-8 skeleton" />
+              ))}
+            </div>
           ) : analytics?.fabricTracking.length ? (
             <div className="space-y-3">
               {analytics.fabricTracking.map((f, i) => {
@@ -154,7 +170,9 @@ export default function AdminDashboardPage() {
       {/* Orders by status */}
       {analytics && (
         <div className="border border-obsidian-100 bg-white p-6">
-          <p className="font-sans text-xs tracking-widest uppercase text-gold mb-6">Orders by Status</p>
+          <p className="font-sans text-xs tracking-widest uppercase text-gold mb-6">
+            Orders by Status
+          </p>
           <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-4">
             {analytics.orders.byStatus.map(({ status, count }) => (
               <div key={status} className="text-center">
@@ -170,12 +188,3 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
-
-// Minimal local state hook — avoids next/navigation dependency for the period toggle
-function useQueryState<T>(initial: T): [T, (v: T) => void] {
-  const [state, setState] = useState<T>(initial);
-  return [state, setState];
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { useState } from "react";

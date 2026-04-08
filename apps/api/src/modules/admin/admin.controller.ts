@@ -5,6 +5,7 @@ import { AdminService } from "./admin.service";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
+import { TriggerNotificationDto } from "./dto/trigger-notification.dto";
 import { OrderStatus } from "@prisma/client";
 
 @Controller("admin")
@@ -30,7 +31,7 @@ export class AdminController {
     @Query("search") search?: string,
   ) {
     const result = await this.admin.getCustomers(+page, +limit, search);
-    return { success: true, ...result };
+    return { success: true, data: result };
   }
 
   @Get("crm/customers/:id")
@@ -50,7 +51,7 @@ export class AdminController {
     @Query("countdown") countdown?: string,
   ) {
     const result = await this.admin.getAllOrders(+page, +limit, status, countdown === "true");
-    return { success: true, ...result };
+    return { success: true, data: result };
   }
 
   // ── Fabric tracking ─────────────────────────────────────────────────────────
@@ -67,11 +68,10 @@ export class AdminController {
 
   @Post("notifications/trigger")
   @Roles("ADMIN", "SUPER_ADMIN")
-  async triggerNotification(
-    @Body("userId") userId: string,
-    @Body("subject") subject: string,
-    @Body("body") body: string,
-  ) {
-    return { success: true, data: await this.admin.triggerNotification(userId, subject, body) };
+  async triggerNotification(@Body() dto: TriggerNotificationDto) {
+    return {
+      success: true,
+      data: await this.admin.triggerNotification(dto.userId, dto.subject, dto.body),
+    };
   }
 }

@@ -8,7 +8,7 @@ import { PrismaService } from "../../lib/prisma.service";
 import type { CreateOrderDto } from "./dto/create-order.dto";
 import type { ScheduleDeliveryDto } from "./dto/schedule-delivery.dto";
 import { EMAIL_QUEUE, type EmailJob } from "../../workers/email.worker";
-import { OrderStatus, type Role } from "@prisma/client";
+import { OrderStatus, Prisma, type Role } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 
 @Injectable()
@@ -85,7 +85,7 @@ export class OrdersService {
           subtotal,
           shippingFee,
           totalAmount,
-          shippingAddress: dto.shippingAddress,
+          shippingAddress: dto.shippingAddress as unknown as Prisma.InputJsonValue,
           notes: dto.notes,
           items: {
             create: resolvedItems.map((item) => ({
@@ -139,7 +139,7 @@ export class OrdersService {
       include: {
         items: { include: { fabric: true } },
         timeline: { orderBy: { createdAt: "asc" } },
-        payment: { select: { status: true, provider: true, paidAt: true } },
+        payment: { select: { status: true, provider: true, paidAt: true, metadata: true } },
       },
     });
 

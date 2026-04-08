@@ -1,11 +1,12 @@
 import {
-  Controller, Post, Body, Param, Req, Res, UseGuards,
+  Controller, Post, Body, Req, Res, UseGuards,
   RawBodyRequest, HttpCode, HttpStatus,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { PaymentsService } from "./payments.service";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { Public } from "../../common/decorators/public.decorator";
+import { SubmitManualProofDto } from "./dto/submit-manual-proof.dto";
 
 @Controller("payments")
 export class PaymentsController {
@@ -18,6 +19,18 @@ export class PaymentsController {
     @Req() req: { user: { id: string } },
   ) {
     return { success: true, data: await this.payments.initiate(orderId, req.user.id) };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("manual-proof")
+  async submitManualProof(
+    @Body() dto: SubmitManualProofDto,
+    @Req() req: { user: { id: string } },
+  ) {
+    return {
+      success: true,
+      data: await this.payments.submitManualProof(dto.orderId, req.user.id, dto),
+    };
   }
 
   @Public()

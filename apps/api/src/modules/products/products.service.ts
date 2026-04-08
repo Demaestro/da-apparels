@@ -1,13 +1,12 @@
-import { Injectable, NotFoundException, ConflictException, Inject } from "@nestjs/common";
-import { CACHE_MANAGER } from "@nestjs/cache-manager";
-import type { Cache } from "cache-manager";
+import { Injectable, NotFoundException, ConflictException } from "@nestjs/common";
+import { CacheService } from "../../lib/cache.service";
 import { PrismaService } from "../../lib/prisma.service";
 import { CloudinaryService } from "./cloudinary.service";
 import type { CreateProductDto } from "./dto/create-product.dto";
 import type { ListProductsDto } from "./dto/list-products.dto";
 import { ProductStatus } from "@prisma/client";
 
-const PRODUCT_CACHE_TTL = 5 * 60 * 1000; // 5 min
+const PRODUCT_CACHE_TTL = 5 * 60;
 const PRODUCT_DETAIL_SELECT = {
   id: true,
   slug: true,
@@ -42,7 +41,7 @@ export class ProductsService {
   constructor(
     private prisma: PrismaService,
     private cloudinary: CloudinaryService,
-    @Inject(CACHE_MANAGER) private cache: Cache,
+    private cache: CacheService,
   ) {}
 
   // ── Public: list products ────────────────────────────────────────────────────
@@ -66,6 +65,8 @@ export class ProductsService {
       where.tags = { some: { tag: dto.tag } };
     }
     if (dto.status) where.status = dto.status;
+    if (typeof dto.hasArTryOn === "boolean") where.hasArTryOn = dto.hasArTryOn;
+    if (typeof dto.isBespoke === "boolean") where.isBespoke = dto.isBespoke;
 
     const skip = (dto.page - 1) * dto.limit;
     const orderBy = { [dto.sortBy ?? "createdAt"]: dto.sortOrder ?? "desc" };
@@ -161,13 +162,16 @@ export class ProductsService {
     const existing = await this.prisma.product.findUnique({ where: { slug: dto.slug } });
     if (existing) throw new ConflictException(`Slug "${dto.slug}" is already in use.`);
 
-    return this.prisma.product.create({
+    const product = await this.prisma.product.create({
       data: {
         ...dto,
         basePrice: dto.basePrice,
       },
       select: { id: true, slug: true, name: true, status: true },
     });
+
+    await this.cache.delByPrefix("products:list:");
+    return product;
   }
 
   // ── Admin: upload image to Cloudinary ───────────────────────────────────────
@@ -175,7 +179,7 @@ export class ProductsService {
   async addImage(productId: string, file: Express.Multer.File, altText?: string) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
-      select: { id: true, _count: { select: { images: true } } },
+      select: { id: true, slug: true, _count: { select: { images: true } } },
     });
     if (!product) throw new NotFoundException("Product not found.");
 
@@ -195,18 +199,28 @@ export class ProductsService {
     });
 
     // Invalidate cache
-    await this.cache.del(`products:detail:${productId}`);
+    await this.invalidateProductCaches(product.slug);
     return image;
   }
 
   async removeImage(productId: string, imageId: string) {
     const image = await this.prisma.productImage.findFirst({
       where: { id: imageId, productId },
+      select: {
+        id: true,
+        cloudinaryId: true,
+        product: { select: { slug: true } },
+      },
     });
     if (!image) throw new NotFoundException("Image not found.");
 
     await this.cloudinary.deleteImage(image.cloudinaryId);
     await this.prisma.productImage.delete({ where: { id: imageId } });
-    await this.cache.del(`products:detail:${productId}`);
+    await this.invalidateProductCaches(image.product.slug);
+  }
+
+  private async invalidateProductCaches(slug: string) {
+    await this.cache.del(`products:detail:${slug}`);
+    await this.cache.delByPrefix("products:list:");
   }
 }

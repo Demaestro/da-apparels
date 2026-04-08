@@ -7,9 +7,12 @@ import { AllExceptionsFilter } from "./common/filters/http-exception.filter";
 import { AuditInterceptor } from "./common/interceptors/audit.interceptor";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
-  // ── Security headers ──────────────────────────────────────────────────────
+  // Trust the first proxy hop (required for Railway / Render / any reverse proxy)
+  // so that rate-limiting and audit logs record the real client IP, not the proxy IP.
+  app.getHttpAdapter().getInstance().set("trust proxy", 1);
+
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -20,42 +23,28 @@ async function bootstrap() {
         },
       },
       hsts: { maxAge: 31536000, includeSubDomains: true },
-    })
+    }),
   );
 
-  // ── Cookie parser (required for HttpOnly refresh token) ───────────────────
   app.use(cookieParser());
 
-  // ── CORS ─────────────────────────────────────────────────────────────────
   app.enableCors({
     origin: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   });
 
-  // ── Global validation pipe (class-validator) ──────────────────────────────
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,        // strip unknown properties
+      whitelist: true,
       forbidNonWhitelisted: true,
-      transform: true,        // auto-transform payloads to DTO instances
+      transform: true,
       transformOptions: { enableImplicitConversion: true },
-    })
+    }),
   );
 
-  // ── Global exception filter ───────────────────────────────────────────────
   app.useGlobalFilters(new AllExceptionsFilter());
-
-  // ── Global audit interceptor ──────────────────────────────────────────────
   app.useGlobalInterceptors(new AuditInterceptor());
-
-  // ── Raw body for webhook signature verification ───────────────────────────
-  app.use("/api/v1/payments/webhook", (req: { rawBody: Buffer }, _res: unknown, next: () => void) => {
-    // NestJS needs rawBody enabled in NestFactory.create options for webhook routes
-    next();
-  });
-
-  // ── Global prefix ─────────────────────────────────────────────────────────
   app.setGlobalPrefix("api/v1");
 
   const port = process.env.PORT ?? 4000;

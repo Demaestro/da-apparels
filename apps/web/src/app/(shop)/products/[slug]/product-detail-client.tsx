@@ -28,7 +28,7 @@ function formatPrice(amount: string, currency: string, adjust = 0) {
 export function ProductDetailClient({ product }: { product: Product }) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
-    product.variants[0]?.id ?? null,
+    product.variants.find((variant) => variant.stockQty > 0)?.id ?? product.variants[0]?.id ?? null,
   );
   const [fabricSelection, setFabricSelection] = useState<FabricSelection>({
     fabricId: null,
@@ -40,10 +40,12 @@ export function ProductDetailClient({ product }: { product: Product }) {
   const addItem = useCartStore((s) => s.addItem);
   const activeImage = product.images[activeImageIndex];
   const selectedVariant = product.variants.find((v) => v.id === selectedVariantId);
-  const enquiryMode = isLookbookProduct(product);
+  const isLookbookPiece = isLookbookProduct(product);
+  const canAddToCart = !selectedVariant || selectedVariant.stockQty > 0;
+  const selectedFabric = product.fabricOptions.find((fabric) => fabric.id === fabricSelection.fabricId);
 
   const fabricPriceAdjust =
-    product.fabricOptions.find((f) => f.id === fabricSelection.fabricId)?.priceAdjust ?? 0;
+    selectedFabric?.priceAdjust ?? 0;
   const variantPriceAdjust = selectedVariant?.priceAdjust ?? 0;
   const totalAdjust = fabricPriceAdjust + Number(variantPriceAdjust);
 
@@ -56,6 +58,7 @@ export function ProductDetailClient({ product }: { product: Product }) {
       variantId: selectedVariantId ?? undefined,
       variantLabel: selectedVariant?.size ?? selectedVariant?.color ?? undefined,
       fabricOptionId: fabricSelection.fabricId ?? undefined,
+      fabricName: selectedFabric?.name,
       fabricColor: fabricSelection.color ?? undefined,
       fabricNote: fabricSelection.note || undefined,
       quantity: 1,
@@ -188,11 +191,39 @@ export function ProductDetailClient({ product }: { product: Product }) {
           <div className="divider-gold" />
 
           <div className="space-y-3">
-            {enquiryMode ? (
-              <>
-                <Link href={`/ar-tryon?piece=${product.slug}`} className="btn-primary w-full">
+            <AnimatePresence mode="wait">
+              {addedToCart ? (
+                <motion.div
+                  key="added"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-3"
+                >
+                  <div className="w-full text-center py-4 border border-gold text-gold font-sans text-xs tracking-widest uppercase">
+                    Added to cart
+                  </div>
+                  <Link href="/checkout" className="btn-primary w-full">
+                    View Cart
+                  </Link>
+                </motion.div>
+              ) : (
+                <motion.div key="add" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  <Button className="w-full" size="lg" onClick={handleAddToCart} disabled={!canAddToCart}>
+                    {canAddToCart ? "Add to Cart" : "Out of Stock"}
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {product.hasArTryOn && (
+                <Link href={`/ar-tryon?piece=${product.slug}`} className="btn-ghost w-full">
                   Open AR Studio
                 </Link>
+              )}
+
+              {(product.isBespoke || isLookbookPiece) && (
                 <a
                   href={`https://wa.me/2348146018669?text=${encodeURIComponent(`Hello, I would like to enquire about the ${product.name}.`)}`}
                   target="_blank"
@@ -201,30 +232,10 @@ export function ProductDetailClient({ product }: { product: Product }) {
                 >
                   Enquire on WhatsApp
                 </a>
-              </>
-            ) : (
-              <AnimatePresence mode="wait">
-                {addedToCart ? (
-                  <motion.div
-                    key="added"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="w-full text-center py-4 border border-gold text-gold font-sans text-xs tracking-widest uppercase"
-                  >
-                    Added to cart
-                  </motion.div>
-                ) : (
-                  <motion.div key="add" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    <Button className="w-full" size="lg" onClick={handleAddToCart}>
-                      Add to Cart
-                    </Button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            )}
+              )}
+            </div>
 
-            {(product.isBespoke || enquiryMode) && (
+            {(product.isBespoke || isLookbookPiece) && (
               <p className="font-sans text-xs text-obsidian-400 text-center">
                 This is a made-to-measure piece. Save your measurements in the vault or use WhatsApp for a bespoke consultation.
               </p>

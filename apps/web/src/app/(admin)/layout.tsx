@@ -1,4 +1,11 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useAuthStore } from "@/lib/store/auth.store";
+
+const ADMIN_ROLES = ["ADMIN", "SUPER_ADMIN"];
 
 const NAV = [
   { label: "Analytics", href: "/admin" },
@@ -8,6 +15,25 @@ const NAV = [
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const { user, isHydrated } = useAuthStore();
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (!user || !ADMIN_ROLES.includes(user.role)) {
+      router.replace("/login?redirect=/admin");
+    }
+  }, [user, isHydrated, router]);
+
+  // Render nothing until hydrated and role confirmed — prevents flash of admin UI
+  if (!isHydrated || !user || !ADMIN_ROLES.includes(user.role)) {
+    return (
+      <div className="min-h-screen bg-obsidian flex items-center justify-center">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-obsidian-50 flex">
       {/* Sidebar */}
