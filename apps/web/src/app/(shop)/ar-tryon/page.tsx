@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   description: "See DA Apparel pieces on you before you order, using Augmented Reality.",
 };
 
-export default function ArTryOnPage() {
-  return <ArTryOnClient />;
+export default function ArTryOnPage({
+  searchParams,
+}: {
+  searchParams: { piece?: string };
+}) {
+  return <ArTryOnClient initialPieceSlug={searchParams.piece} />;
 }

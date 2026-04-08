@@ -1,26 +1,14 @@
 "use client";
 
-/**
- * FabricCustomizer — the Fabric Customisation UI state engine.
- *
- * State model:
- *   selectedFabricId → drives fabric detail panel
- *   selectedColor    → drives product preview overlay
- *   customNote       → free-text for bespoke requests
- *
- * This component is intentionally self-contained using Zustand so the
- * parent ProductPage can remain a Server Component.
- */
-
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CldImage } from "next-cloudinary";
+import { SmartImage } from "@/components/media/smart-image";
 
 export interface FabricOptionUI {
   id: string;
   name: string;
   category: string;
-  colorOptions: string[]; // hex codes
+  colorOptions: string[];
   textureImageUrl?: string;
   priceAdjust: number;
   inStock: boolean;
@@ -40,10 +28,12 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
   const [selectedColor, setSelectedColor] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
-  const selectedFabric = fabricOptions.find((f) => f.id === selectedFabricId) ?? null;
+  const selectedFabric = fabricOptions.find((fabric) => fabric.id === selectedFabricId) ?? null;
 
   function selectFabric(id: string) {
-    const fabric = fabricOptions.find((f) => f.id === id)!;
+    const fabric = fabricOptions.find((item) => item.id === id);
+    if (!fabric) return;
+
     const defaultColor = fabric.colorOptions[0] ?? null;
     setSelectedFabricId(id);
     setSelectedColor(defaultColor);
@@ -57,10 +47,9 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
 
   return (
     <div className="space-y-8">
-      {/* Step 1 — Choose Fabric */}
       <div>
         <p className="font-sans text-xs tracking-widest uppercase text-gold mb-4">
-          01 — Select Fabric
+          01 â€” Select Fabric
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {fabricOptions.map((fabric) => (
@@ -76,12 +65,13 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
             >
               {fabric.textureImageUrl && (
                 <div className="mb-3 aspect-square overflow-hidden bg-obsidian-100">
-                  <CldImage
+                  <SmartImage
                     src={fabric.textureImageUrl}
                     alt={fabric.name}
                     width={120}
                     height={120}
-                    className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
+                    className="object-cover h-full w-full group-hover:scale-105 transition-transform duration-300"
+                    quality={70}
                   />
                 </div>
               )}
@@ -89,7 +79,7 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
               <p className="font-sans text-xs text-obsidian-400 mt-0.5">{fabric.category}</p>
               {fabric.priceAdjust > 0 && (
                 <p className="font-sans text-xs text-gold mt-1">
-                  +₦{fabric.priceAdjust.toLocaleString()}
+                  +â‚¦{fabric.priceAdjust.toLocaleString()}
                 </p>
               )}
               {selectedFabricId === fabric.id && (
@@ -103,7 +93,6 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
         </div>
       </div>
 
-      {/* Step 2 — Choose Colour */}
       <AnimatePresence>
         {selectedFabric && (
           <motion.div
@@ -113,7 +102,7 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
             exit={{ opacity: 0, y: -12 }}
           >
             <p className="font-sans text-xs tracking-widest uppercase text-gold mb-4">
-              02 — Choose Colour
+              02 â€” Choose Colour
             </p>
             <div className="flex flex-wrap gap-3">
               {selectedFabric.colorOptions.map((hex) => (
@@ -135,7 +124,6 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
         )}
       </AnimatePresence>
 
-      {/* Step 3 — Bespoke note */}
       <AnimatePresence>
         {selectedFabric && (
           <motion.div
@@ -144,16 +132,17 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
             animate={{ opacity: 1, y: 0 }}
           >
             <p className="font-sans text-xs tracking-widest uppercase text-gold mb-4">
-              03 — Bespoke Instructions (optional)
+              03 â€” Bespoke Instructions (optional)
             </p>
             <textarea
               value={note}
-              onChange={(e) => {
-                setNote(e.target.value);
-                onSelectionChange({ fabricId: selectedFabricId, color: selectedColor, note: e.target.value });
+              onChange={(event) => {
+                const value = event.target.value;
+                setNote(value);
+                onSelectionChange({ fabricId: selectedFabricId, color: selectedColor, note: value });
               }}
               rows={3}
-              placeholder="e.g. 'Please add gold-thread embroidery on the collar…'"
+              placeholder="e.g. 'Please add gold-thread embroidery on the collarâ€¦'"
               className="w-full border border-obsidian-200 bg-transparent px-4 py-3
                          font-sans text-sm text-obsidian placeholder:text-obsidian-300
                          focus:outline-none focus:border-gold transition-colors resize-none"

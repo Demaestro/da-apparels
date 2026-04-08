@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { CldImage } from "next-cloudinary";
 import { motion } from "framer-motion";
 import type { ProductSummary } from "@/lib/api/products";
+import { SmartImage } from "@/components/media/smart-image";
 
 function formatPrice(amount: string, currency: string) {
   return new Intl.NumberFormat("en-NG", {
@@ -27,12 +27,13 @@ export function ProductCard({ product }: { product: ProductSummary }) {
         {/* Image */}
         <div className="relative overflow-hidden bg-obsidian-50 aspect-[3/4]">
           {primaryImage ? (
-            <CldImage
+            <SmartImage
               src={primaryImage.url}
               alt={primaryImage.altText ?? product.name}
               fill
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               className="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+              quality={84}
             />
           ) : (
             <div className="absolute inset-0 skeleton" />

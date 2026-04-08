@@ -20,7 +20,19 @@ export function Navbar() {
   const itemCount = useCartStore((s) => s.itemCount());
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
+    let ticking = false;
+
+    const onScroll = () => {
+      if (ticking) return;
+
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        const nextScrolled = window.scrollY > 40;
+        setScrolled((current) => (current === nextScrolled ? current : nextScrolled));
+        ticking = false;
+      });
+    };
+
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);

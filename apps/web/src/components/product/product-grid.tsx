@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ProductCard } from "./product-card";
 import { fetchProducts } from "@/lib/api/products";
+import { getCatalogueSummaries } from "@/lib/catalogue-data";
 
 interface ProductGridProps {
   categorySlug?: string;
@@ -21,6 +22,13 @@ export function ProductGrid({ categorySlug, search, tag }: ProductGridProps) {
     queryFn: () => fetchProducts(params),
   });
 
+  const fallbackProducts = getCatalogueSummaries({ categorySlug, search, tag });
+  const products = data
+    ? data.success
+      ? data.data?.products ?? []
+      : fallbackProducts
+    : fallbackProducts;
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -30,8 +38,6 @@ export function ProductGrid({ categorySlug, search, tag }: ProductGridProps) {
       </div>
     );
   }
-
-  const products = data?.data?.products ?? [];
 
   if (!products.length) {
     return (
@@ -43,7 +49,7 @@ export function ProductGrid({ categorySlug, search, tag }: ProductGridProps) {
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4 [content-visibility:auto]">
       {products.map((product) => (
         <ProductCard key={product.id} product={product} />
       ))}

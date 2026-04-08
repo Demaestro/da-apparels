@@ -54,19 +54,43 @@ export async function apiRequest<T>(
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  let res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  let res: Response;
+
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers,
+      credentials: "include",
+    });
+  } catch {
+    return {
+      success: false,
+      message: "We could not reach the DA Apparels server. Please try again shortly.",
+    };
+  }
 
   // Token expired — attempt silent refresh once
   if (res.status === 401 && !skipAuth) {
     const refreshed = await refreshAccessToken();
     if (refreshed && accessToken) {
       headers.set("Authorization", `Bearer ${accessToken}`);
-      res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
+      try {
+        res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
+      } catch {
+        return {
+          success: false,
+          message: "We could not reach the DA Apparels server. Please try again shortly.",
+        };
+      }
     }
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return {
+      success: res.ok,
+      message: res.ok ? undefined : "The server returned an unexpected response.",
+    };
   }
 
   return res.json() as Promise<ApiResponse<T>>;

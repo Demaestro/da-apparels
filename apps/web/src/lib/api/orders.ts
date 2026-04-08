@@ -43,7 +43,26 @@ export async function createOrder(items: CartItem[], shippingAddress: ShippingAd
 }
 
 export async function initiatePayment(orderId: string) {
-  return api.post<{ authorizationUrl: string; reference: string }>("/payments/initiate", { orderId });
+  return api.post<
+    | {
+        flow: "redirect";
+        provider: "paystack";
+        authorizationUrl: string;
+        reference: string;
+      }
+    | {
+        flow: "manual";
+        provider: "manual";
+        reference: string;
+        message: string;
+        bankName: string;
+        accountName: string;
+        accountNumber: string;
+        transferReference: string;
+        contactEmail?: string;
+        contactWhatsApp?: string;
+      }
+  >("/payments/initiate", { orderId });
 }
 
 export async function fetchMyOrders(page = 1) {
