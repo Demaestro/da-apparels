@@ -4,7 +4,7 @@
  * and silently refreshes the access token when a 401 is returned.
  */
 
-import type { ApiResponse } from "@da-apparels/types";
+import type { ApiResponse } from "@/lib/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 

@@ -24,8 +24,7 @@
     "react-hook-form": "^7.52.0",
     "@hookform/resolvers": "^3.9.0",
     "next-cloudinary": "^6.9.0",
-    "js-cookie": "^3.0.5",
-    "@da-apparels/types": "workspace:*"
+    "js-cookie": "^3.0.5"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

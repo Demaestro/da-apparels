@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { api } from "@/lib/api/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import type { BodyMeasurements } from "@da-apparels/types";
+import type { BodyMeasurements } from "@/lib/types";
 
 const schema = z.object({
   chest: z.coerce.number().positive().max(200),
