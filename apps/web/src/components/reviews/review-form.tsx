@@ -68,7 +68,7 @@ export function ReviewForm({ productId, productName, orderId, onSuccess }: Revie
 
   async function onSubmit(values: FormValues) {
     setServerError(null);
-    const res = await submitReview({ productId, orderId, ...values });
+    const res = await submitReview({ productId, orderId, ...values } as import("@/lib/api/reviews").SubmitReviewBody);
     if (!res.success) {
       setServerError(res.message ?? "Could not submit your review. Please try again.");
       return;
