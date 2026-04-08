@@ -14,3 +14,5 @@ prisma/migrations/
 
 # Cloudinary secrets
 *.pem
+
+.vercel
