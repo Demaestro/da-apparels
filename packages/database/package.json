@@ -11,9 +11,14 @@
     "seed": "ts-node src/seed.ts"
   },
   "dependencies": {
+    "@da-apparels/types": "workspace:*",
     "@prisma/client": "^5.16.0"
   },
+  "prisma": {
+    "seed": "ts-node src/seed.ts"
+  },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "prisma": "^5.16.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.5.0"
