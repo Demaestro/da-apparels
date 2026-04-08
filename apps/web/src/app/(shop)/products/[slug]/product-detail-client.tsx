@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { FabricCustomizer } from "@/components/fabric/fabric-customizer";
 import { SmartImage } from "@/components/media/smart-image";
+import { ProductReviews } from "@/components/reviews/product-reviews";
 import { Button } from "@/components/ui/button";
 import { useCartStore } from "@/lib/store/cart.store";
 import type { Product } from "@/lib/api/products";
@@ -230,6 +231,15 @@ export function ProductDetailClient({ product }: { product: Product }) {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Reviews section */}
+      <div className="border-t border-obsidian-100 pt-16 mt-16">
+        <ProductReviews
+          productId={product.id}
+          productName={product.name}
+          allowReview
+        />
       </div>
     </div>
   );

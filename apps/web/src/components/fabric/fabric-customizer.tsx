@@ -49,7 +49,7 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
     <div className="space-y-8">
       <div>
         <p className="font-sans text-xs tracking-widest uppercase text-gold mb-4">
-          01 â€” Select Fabric
+          01 — Select Fabric
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {fabricOptions.map((fabric) => (
@@ -79,7 +79,7 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
               <p className="font-sans text-xs text-obsidian-400 mt-0.5">{fabric.category}</p>
               {fabric.priceAdjust > 0 && (
                 <p className="font-sans text-xs text-gold mt-1">
-                  +â‚¦{fabric.priceAdjust.toLocaleString()}
+                  +₦{fabric.priceAdjust.toLocaleString()}
                 </p>
               )}
               {selectedFabricId === fabric.id && (
@@ -102,7 +102,7 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
             exit={{ opacity: 0, y: -12 }}
           >
             <p className="font-sans text-xs tracking-widest uppercase text-gold mb-4">
-              02 â€” Choose Colour
+              02 — Choose Colour
             </p>
             <div className="flex flex-wrap gap-3">
               {selectedFabric.colorOptions.map((hex) => (
@@ -132,7 +132,7 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
             animate={{ opacity: 1, y: 0 }}
           >
             <p className="font-sans text-xs tracking-widest uppercase text-gold mb-4">
-              03 â€” Bespoke Instructions (optional)
+              03 — Bespoke Instructions (optional)
             </p>
             <textarea
               value={note}
@@ -142,7 +142,7 @@ export function FabricCustomizer({ fabricOptions, onSelectionChange }: FabricCus
                 onSelectionChange({ fabricId: selectedFabricId, color: selectedColor, note: value });
               }}
               rows={3}
-              placeholder="e.g. 'Please add gold-thread embroidery on the collarâ€¦'"
+              placeholder="e.g. 'Please add gold-thread embroidery on the collar…'"
               className="w-full border border-obsidian-200 bg-transparent px-4 py-3
                          font-sans text-sm text-obsidian placeholder:text-obsidian-300
                          focus:outline-none focus:border-gold transition-colors resize-none"

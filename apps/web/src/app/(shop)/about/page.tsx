@@ -43,7 +43,7 @@ export default function AboutPage() {
       <section className="grid gap-6 md:grid-cols-3">
         {[
           ["Bespoke first", "Measurements, fit notes, and styling direction shape every final decision."],
-          ["Event ready", "The collection is built for weddings, portraits, private dinners, and bold entrances."],
+          ["Bold appearances", "The collection is built for weddings, portraits, private dinners, and bold entrances."],
           ["Made in Nigeria", "The visual language stays proudly local while the finish feels globally premium."],
         ].map(([title, body]) => (
           <div key={title} className="border border-obsidian-100 p-6">

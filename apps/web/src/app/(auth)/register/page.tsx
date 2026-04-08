@@ -26,6 +26,7 @@ type FormValues = z.infer<typeof schema>;
 export default function RegisterPage() {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [confirmSent, setConfirmSent] = useState(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -33,12 +34,40 @@ export default function RegisterPage() {
 
   async function onSubmit(values: FormValues) {
     setServerError(null);
-    const res = await apiRegister(values as { email: string; password: string; firstName: string; lastName: string });
+    const res = await apiRegister(values);
     if (!res.success) {
-      setServerError(res.message ?? "Registration failed.");
+      setServerError(res.message ?? "Registration failed. Please try again.");
       return;
     }
-    router.push("/account/vault");
+    // If we got a token, go straight to vault
+    if (res.data?.accessToken) {
+      router.push("/account/vault");
+      return;
+    }
+    // No token — Supabase sent a confirmation email
+    setConfirmSent(true);
+  }
+
+  if (confirmSent) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md text-center"
+      >
+        <div className="mb-6 mx-auto h-16 w-16 rounded-full bg-gold/10 flex items-center justify-center">
+          <svg className="h-8 w-8 text-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
+          </svg>
+        </div>
+        <p className="font-sans text-xs tracking-[0.3em] uppercase text-gold mb-4">Almost there</p>
+        <h1 className="font-display text-4xl text-ivory mb-4">Check your inbox</h1>
+        <p className="font-sans text-sm text-obsidian-400 leading-loose">
+          We sent a confirmation link to your email. Click it to activate your account, then{" "}
+          <Link href="/login" className="text-gold hover:underline">sign in here</Link>.
+        </p>
+      </motion.div>
+    );
   }
 
   return (

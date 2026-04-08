@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchOrder } from "@/lib/api/orders";
 import { OrderStatusBadge } from "@/components/ui/badge";
+import { ProductReviews } from "@/components/reviews/product-reviews";
 
 function formatPrice(amount: number, currency: string) {
   return new Intl.NumberFormat("en-NG", {
@@ -118,6 +119,22 @@ export default function AccountOrderDetailPage({
           </div>
         </div>
       </section>
+
+      {/* Post-purchase reviews — one per product in the order */}
+      {order.status === "DELIVERED" && order.items.length > 0 && (
+        <section className="border-t border-obsidian-100 pt-10 space-y-10">
+          <h2 className="font-display text-2xl text-obsidian">Review Your Pieces</h2>
+          {order.items.map((item, index) => (
+            <ProductReviews
+              key={`${item.productId}-${index}`}
+              productId={item.productId}
+              productName={item.productName}
+              orderId={order.id}
+              allowReview
+            />
+          ))}
+        </section>
+      )}
     </div>
   );
 }

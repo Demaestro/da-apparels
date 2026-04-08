@@ -36,9 +36,26 @@ export default function LoginPage() {
       return;
     }
 
-    // Load user profile
+    // Try to load user profile from API; fall back to Supabase session data
     const meRes = await api.get<{ id: string; email: string; role: string; profile: { firstName: string; lastName: string } }>("/users/me");
-    if (meRes.success && meRes.data) setUser(meRes.data);
+    if (meRes.success && meRes.data) {
+      setUser(meRes.data);
+    } else {
+      // Backend not yet deployed — build a minimal user object from Supabase session
+      const { supabase } = await import("@/lib/supabase/client");
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
+        setUser({
+          id: data.user.id,
+          email: data.user.email ?? values.email,
+          role: "CLIENT",
+          profile: {
+            firstName: data.user.user_metadata?.firstName ?? "",
+            lastName: data.user.user_metadata?.lastName ?? "",
+          },
+        });
+      }
+    }
 
     router.push("/");
   }
