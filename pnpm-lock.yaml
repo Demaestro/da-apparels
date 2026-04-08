@@ -141,9 +141,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@da-apparels/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       '@hookform/resolvers':
         specifier: ^3.9.0
         version: 3.10.0(react-hook-form@7.72.1(react@18.3.1))
