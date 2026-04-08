@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" fill="none">
+  <!-- Brand mark: DA's APPAREL -->
+  <text x="20" y="58" font-family="Georgia, 'Times New Roman', serif" font-size="42" font-weight="400" fill="#1a4a3a" letter-spacing="2">DA's</text>
+  <!-- Scissors icon -->
+  <g transform="translate(148, 22)">
+    <line x1="12" y1="8" x2="32" y2="38" stroke="#1a4a3a" stroke-width="1.8" stroke-linecap="round"/>
+    <line x1="20" y1="8" x2="32" y2="38" stroke="#1a4a3a" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="9" cy="8" r="4.5" stroke="#1a4a3a" stroke-width="1.8" fill="none"/>
+    <circle cx="23" cy="8" r="4.5" stroke="#1a4a3a" stroke-width="1.8" fill="none"/>
+    <line x1="32" y1="38" x2="52" y2="44" stroke="#1a4a3a" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+  <!-- APPAREL text -->
+  <text x="205" y="58" font-family="Georgia, 'Times New Roman', serif" font-size="42" font-weight="400" fill="#1a4a3a" letter-spacing="3">APPAREL</text>
+  <!-- Horizontal rule + needle -->
+  <line x1="20" y1="70" x2="360" y2="70" stroke="#1a4a3a" stroke-width="1" opacity="0.5"/>
+  <!-- Needle at end of rule -->
+  <ellipse cx="370" cy="70" rx="10" ry="3.5" stroke="#1a4a3a" stroke-width="1.2" fill="none"/>
+  <line x1="380" y1="70" x2="400" y2="62" stroke="#1a4a3a" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="380" y1="70" x2="400" y2="78" stroke="#1a4a3a" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- Tagline -->
+  <text x="20" y="94" font-family="Georgia, 'Times New Roman', serif" font-size="16" font-style="italic" fill="#1a4a3a" opacity="0.75" letter-spacing="0.5">Let's make you a piece of art.</text>
+</svg>

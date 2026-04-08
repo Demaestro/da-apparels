@@ -1,0 +1,457 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// DA Apparels — Prisma Schema
+// Database: PostgreSQL 16
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAYMENT_CONFIRMED
+  IN_PRODUCTION
+  QUALITY_CHECK
+  READY_FOR_DELIVERY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum FabricCategory {
+  COTTON
+  SILK
+  LINEN
+  WOOL
+  CASHMERE
+  VELVET
+  SATIN
+  CHIFFON
+  LACE
+  DENIM
+  CUSTOM
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  OUT_OF_STOCK
+  ARCHIVED
+}
+
+enum DeliverySlot {
+  MORNING    // 08:00–12:00
+  AFTERNOON  // 12:00–17:00
+  EVENING    // 17:00–21:00
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+  IN_APP
+}
+
+enum QuizBodyType {
+  HOURGLASS
+  PEAR
+  APPLE
+  RECTANGLE
+  INVERTED_TRIANGLE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  emailVerified     Boolean   @default(false)
+  passwordHash      String?
+  // Auth0 subject ID when using Auth0
+  auth0Sub          String?   @unique
+  role              Role      @default(CUSTOMER)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLoginAt       DateTime?
+
+  profile           Profile?
+  measurements      Measurement?
+  orders            Order[]
+  styleQuizResult   StyleQuizResult?
+  sessions          Session[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+
+  @@index([email])
+  @@index([auth0Sub])
+  @@map("users")
+}
+
+model Profile {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  firstName       String
+  lastName        String
+  phone           String?
+  avatarUrl       String?   // Cloudinary URL
+  dateOfBirth     DateTime?
+  country         String    @default("NG")
+  city            String?
+  addressLine1    String?
+  addressLine2    String?
+  postalCode      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+// Refresh token sessions
+model Session {
+  id           String    @id @default(cuid())
+  userId       String
+  token        String    @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER VAULT — Encrypted Body Measurements
+// NOTE: `encryptedData` stores AES-256-GCM ciphertext of a JSON blob.
+//       The plaintext JSON shape is defined in packages/types/src/measurements.ts
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Measurement {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  // AES-256-GCM encrypted JSON:
+  // { chest, waist, hips, inseam, shoulder, sleeveLength, height, weight, notes }
+  encryptedData   String
+  iv              String    // 12-byte IV, hex-encoded
+  authTag         String    // 16-byte GCM auth tag, hex-encoded
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("measurements")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLE QUIZ
+// ─────────────────────────────────────────────────────────────────────────────
+
+model StyleQuizResult {
+  id              String        @id @default(cuid())
+  userId          String        @unique
+  bodyType        QuizBodyType
+  preferredColors String[]      // e.g. ["#1A1A1A", "#C9A94A"]
+  preferredStyles String[]      // e.g. ["minimalist", "formal", "streetwear"]
+  occasions       String[]      // e.g. ["office", "gala", "casual"]
+  // JSON blob of matched product IDs / category weights
+  matchPayload    Json
+  takenAt         DateTime      @default(now())
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("style_quiz_results")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCT ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  slug        String      @unique
+  description String?
+  imageUrl    String?
+  parentId    String?
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+
+  parent      Category?   @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryTree")
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id              String          @id @default(cuid())
+  slug            String          @unique
+  name            String
+  tagline         String?
+  description     String
+  status          ProductStatus   @default(DRAFT)
+  basePrice       Decimal         @db.Decimal(12, 2)
+  currency        String          @default("NGN")
+  categoryId      String
+  isBespoke       Boolean         @default(false) // custom-tailored
+  hasArTryOn      Boolean         @default(false)
+  metaTitle       String?
+  metaDescription String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  category        Category        @relation(fields: [categoryId], references: [id])
+  images          ProductImage[]
+  variants        ProductVariant[]
+  fabricOptions   FabricOption[]
+  orderItems      OrderItem[]
+  tags            ProductTag[]
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([status])
+  @@map("products")
+}
+
+model ProductImage {
+  id           String    @id @default(cuid())
+  productId    String
+  cloudinaryId String    // Cloudinary public_id
+  url          String    // Cloudinary secure_url
+  altText      String?
+  width        Int
+  height       Int
+  isPrimary    Boolean   @default(false)
+  sortOrder    Int       @default(0)
+
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model ProductVariant {
+  id          String    @id @default(cuid())
+  productId   String
+  sku         String    @unique
+  size        String?   // e.g. "S", "M", "L", "XL", "Custom"
+  color       String?
+  colorHex    String?
+  stockQty    Int       @default(0)
+  priceAdjust Decimal   @default(0) @db.Decimal(10, 2) // added to basePrice
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems  OrderItem[]
+
+  @@index([productId])
+  @@index([sku])
+  @@map("product_variants")
+}
+
+// Fabric options per product — drives the customization engine
+model FabricOption {
+  id              String          @id @default(cuid())
+  productId       String
+  name            String          // e.g. "Premium Nigerian Lace"
+  category        FabricCategory
+  colorOptions    String[]        // hex codes available for this fabric
+  textureImageUrl String?         // Cloudinary URL — swatch preview
+  priceAdjust     Decimal         @default(0) @db.Decimal(10, 2)
+  inStock         Boolean         @default(true)
+
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItemFabric OrderItemFabric[]
+
+  @@index([productId])
+  @@map("fabric_options")
+}
+
+model ProductTag {
+  id        String    @id @default(cuid())
+  productId String
+  tag       String
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, tag])
+  @@map("product_tags")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Order {
+  id                  String        @id @default(cuid())
+  orderNumber         String        @unique // e.g. "DA-2024-00001"
+  userId              String
+  status              OrderStatus   @default(PENDING_PAYMENT)
+  subtotal            Decimal       @db.Decimal(12, 2)
+  shippingFee         Decimal       @default(0) @db.Decimal(10, 2)
+  taxAmount           Decimal       @default(0) @db.Decimal(10, 2)
+  totalAmount         Decimal       @db.Decimal(12, 2)
+  currency            String        @default("NGN")
+  notes               String?
+  // Snapshot of shipping address at time of order
+  shippingAddress     Json
+  productionDeadline  DateTime?
+  deliveryScheduledAt DateTime?
+  deliverySlot        DeliverySlot?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  user                User          @relation(fields: [userId], references: [id])
+  items               OrderItem[]
+  payment             Payment?
+  timeline            OrderTimeline[]
+  notification        Notification[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String    @id @default(cuid())
+  orderId     String
+  productId   String
+  variantId   String?
+  quantity    Int
+  unitPrice   Decimal   @db.Decimal(12, 2)
+  totalPrice  Decimal   @db.Decimal(12, 2)
+  // Snapshot of product name at time of purchase
+  productName String
+  sku         String?
+
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product         @relation(fields: [productId], references: [id])
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+  fabric      OrderItemFabric?
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// Captures the fabric selection made during checkout customization
+model OrderItemFabric {
+  id              String        @id @default(cuid())
+  orderItemId     String        @unique
+  fabricOptionId  String
+  chosenColor     String?
+  customNote      String?
+
+  orderItem       OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  fabricOption    FabricOption  @relation(fields: [fabricOptionId], references: [id])
+
+  @@map("order_item_fabrics")
+}
+
+model OrderTimeline {
+  id        String      @id @default(cuid())
+  orderId   String
+  status    OrderStatus
+  note      String?
+  createdBy String?     // staff user id or "system"
+  createdAt DateTime    @default(now())
+
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_timelines")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Payment {
+  id              String    @id @default(cuid())
+  orderId         String    @unique
+  provider        String    // "paystack" | "flutterwave" | "stripe"
+  providerRef     String?   // provider transaction reference
+  amount          Decimal   @db.Decimal(12, 2)
+  currency        String
+  status          String    // "pending" | "success" | "failed"
+  paidAt          DateTime?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  order           Order     @relation(fields: [orderId], references: [id])
+
+  @@index([providerRef])
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS (BullMQ triggers write here; front-end polls/reads)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  orderId   String?
+  channel   NotificationChannel
+  subject   String
+  body      String
+  isRead    Boolean             @default(false)
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order     Order?              @relation(fields: [orderId], references: [id])
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String    @id @default(cuid())
+  userId     String?
+  action     String    // e.g. "ORDER_STATUS_CHANGED", "MEASUREMENT_UPDATED"
+  entity     String    // e.g. "Order", "User"
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  user       User?     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}

@@ -1,0 +1,13 @@
+{
+  "name": "DA's Apparel",
+  "short_name": "DA Apparel",
+  "description": "Let's make you a piece of art.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF8F3",
+  "theme_color": "#0A0A0A",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

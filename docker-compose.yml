@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: da_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: da_user
+      POSTGRES_PASSWORD: da_password
+      POSTGRES_DB: da_apparels
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U da_user -d da_apparels"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres_shadow:
+    image: postgres:16-alpine
+    container_name: da_postgres_shadow
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: da_user
+      POSTGRES_PASSWORD: da_password
+      POSTGRES_DB: da_apparels_shadow
+
+  redis:
+    image: redis:7-alpine
+    container_name: da_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Uncomment for local Cloudinary alternative during dev
+  # minio:
+  #   image: minio/minio
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   command: server /data --console-address ":9001"
+  #   volumes:
+  #     - minio_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
