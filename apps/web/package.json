@@ -2,6 +2,9 @@
   "name": "@da-apparels/web",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "next dev -p ${PORT:-3001}",
     "build": "next build",

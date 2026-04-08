@@ -1,0 +1,6 @@
+{
+  "buildCommand": "pnpm --filter @da-apparels/web build",
+  "outputDirectory": "apps/web/.next",
+  "installCommand": "pnpm install",
+  "framework": "nextjs"
+}
