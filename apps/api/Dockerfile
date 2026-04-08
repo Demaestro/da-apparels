@@ -11,6 +11,8 @@ COPY packages/database/package.json ./packages/database/
 COPY packages/types/package.json ./packages/types/
 
 RUN pnpm install --frozen-lockfile --ignore-scripts
+# Ensure optional node_modules dirs exist so COPY --from never fails
+RUN mkdir -p packages/database/node_modules packages/types/node_modules
 
 # ── Stage 2: build ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS build
@@ -20,8 +22,8 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules 2>/dev/null || true
-COPY --from=deps /app/packages/types/node_modules ./packages/types/node_modules 2>/dev/null || true
+COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules
+COPY --from=deps /app/packages/types/node_modules ./packages/types/node_modules
 
 COPY . .
 
