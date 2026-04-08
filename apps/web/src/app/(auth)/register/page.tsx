@@ -34,7 +34,7 @@ export default function RegisterPage() {
 
   async function onSubmit(values: FormValues) {
     setServerError(null);
-    const res = await apiRegister(values);
+    const res = await apiRegister(values as { email: string; password: string; firstName: string; lastName: string });
     if (!res.success) {
       setServerError(res.message ?? "Registration failed. Please try again.");
       return;
