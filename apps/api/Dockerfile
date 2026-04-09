@@ -1,5 +1,29 @@
-# ── Stage 1: deps ──────────────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+# ── Stage 1: build ─────────────────────────────────────────────────────────────
+FROM node:20-alpine AS build
+RUN npm install -g pnpm@9
+
+WORKDIR /app
+
+# Copy all workspace manifests first (for layer caching)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/database/package.json ./packages/database/
+COPY packages/types/package.json ./packages/types/
+
+# Install all deps (including devDeps for build tools)
+RUN pnpm install --frozen-lockfile
+
+# Copy source
+COPY . .
+
+# Generate Prisma client
+RUN pnpm --filter @da-apparels/database exec prisma generate
+
+# Build the API
+RUN pnpm --filter @da-apparels/api build
+
+# ── Stage 2: production deploy bundle ──────────────────────────────────────────
+FROM node:20-alpine AS deploy
 RUN npm install -g pnpm@9
 
 WORKDIR /app
@@ -9,63 +33,32 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/database/package.json ./packages/database/
 COPY packages/types/package.json ./packages/types/
+COPY packages/types/src ./packages/types/src
 
-RUN pnpm install --frozen-lockfile
-# Ensure optional node_modules dirs exist so COPY --from never fails
-RUN mkdir -p packages/database/node_modules packages/types/node_modules
+# Copy Prisma schema (needed for migrate deploy at runtime)
+COPY packages/database/prisma ./packages/database/prisma
 
-# ── Stage 2: build ─────────────────────────────────────────────────────────────
-FROM node:20-alpine AS build
-RUN npm install -g pnpm@9
+# Use pnpm deploy to create a self-contained production bundle
+# This resolves all workspace links and hoists everything correctly
+RUN pnpm install --frozen-lockfile --prod
 
-WORKDIR /app
+# Generate Prisma client in the production node_modules
+RUN pnpm --filter @da-apparels/database exec prisma generate
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules
-COPY --from=deps /app/packages/types/node_modules ./packages/types/node_modules
+# Copy compiled API output
+COPY --from=build /app/apps/api/dist ./apps/api/dist
 
-COPY . .
-
-# Generate Prisma client (outputs to packages/database/node_modules/.prisma AND node_modules/.prisma)
-RUN pnpm --filter @da-apparels/database exec prisma generate && \
-    mkdir -p node_modules/.prisma node_modules/@prisma && \
-    cp -r packages/database/node_modules/.prisma/. node_modules/.prisma/ 2>/dev/null || true && \
-    cp -r packages/database/node_modules/@prisma/. node_modules/@prisma/ 2>/dev/null || true
-
-# Build the API
-RUN pnpm --filter @da-apparels/api build
-
-# ── Stage 3: production image ──────────────────────────────────────────────────
+# ── Stage 3: minimal runner ────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN npm install -g pnpm@9
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy workspace manifests for pnpm deploy
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY packages/database/package.json ./packages/database/
-COPY packages/types/package.json ./packages/types/
-
-# Production-only install (no devDeps) — run scripts so Prisma engines are set up
-RUN pnpm install --frozen-lockfile --prod
-
-# Copy compiled output
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-
-# Copy Prisma schema and generated client
-COPY --from=build /app/packages/database/prisma ./packages/database/prisma
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
-
-# Copy types package source (workspace dep)
-COPY packages/types/src ./packages/types/src
-COPY packages/types/package.json ./packages/types/
+# Copy the entire self-contained deploy bundle
+COPY --from=deploy /app ./
 
 # Run migrations then start
-CMD ["sh", "-c", "pnpm --filter @da-apparels/database exec prisma migrate deploy && node apps/api/dist/main.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy --schema packages/database/prisma/schema.prisma && node apps/api/dist/main.js"]
 
 EXPOSE 4000
