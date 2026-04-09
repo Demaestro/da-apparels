@@ -27,8 +27,11 @@ COPY --from=deps /app/packages/types/node_modules ./packages/types/node_modules
 
 COPY . .
 
-# Generate Prisma client
-RUN pnpm --filter @da-apparels/database exec prisma generate
+# Generate Prisma client (outputs to packages/database/node_modules/.prisma AND node_modules/.prisma)
+RUN pnpm --filter @da-apparels/database exec prisma generate && \
+    mkdir -p node_modules/.prisma node_modules/@prisma && \
+    cp -r packages/database/node_modules/.prisma/. node_modules/.prisma/ 2>/dev/null || true && \
+    cp -r packages/database/node_modules/@prisma/. node_modules/@prisma/ 2>/dev/null || true
 
 # Build the API
 RUN pnpm --filter @da-apparels/api build
