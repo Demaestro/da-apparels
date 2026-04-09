@@ -1,62 +1,45 @@
-# ── Stage 1: build ─────────────────────────────────────────────────────────────
+# ── Stage 1: install + build ────────────────────────────────────────────────────
 FROM node:20-alpine AS build
 RUN npm install -g pnpm@9
 
 WORKDIR /app
 
-# Copy all workspace manifests first (for layer caching)
+# Copy workspace manifests (layer cache)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/database/package.json ./packages/database/
 COPY packages/types/package.json ./packages/types/
 
-# Install all deps (including devDeps for build tools)
+# Install everything (dev + prod) so prisma CLI is available
 RUN pnpm install --frozen-lockfile
 
-# Copy source
+# Copy all source
 COPY . .
 
-# Generate Prisma client
+# Generate Prisma client, then build API
 RUN pnpm --filter @da-apparels/database exec prisma generate
-
-# Build the API
 RUN pnpm --filter @da-apparels/api build
 
-# ── Stage 2: production deploy bundle ──────────────────────────────────────────
-FROM node:20-alpine AS deploy
-RUN npm install -g pnpm@9
+# Prune to production-only deps while keeping Prisma-generated files
+RUN pnpm prune --prod
 
-WORKDIR /app
-
-# Copy workspace manifests
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json ./apps/api/
-COPY packages/database/package.json ./packages/database/
-COPY packages/types/package.json ./packages/types/
-COPY packages/types/src ./packages/types/src
-
-# Copy Prisma schema (needed for migrate deploy at runtime)
-COPY packages/database/prisma ./packages/database/prisma
-
-# Use pnpm deploy to create a self-contained production bundle
-# This resolves all workspace links and hoists everything correctly
-RUN pnpm install --frozen-lockfile --prod
-
-# Generate Prisma client in the production node_modules
-RUN pnpm --filter @da-apparels/database exec prisma generate
-
-# Copy compiled API output
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-
-# ── Stage 3: minimal runner ────────────────────────────────────────────────────
+# ── Stage 2: minimal runner ─────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Copy the entire self-contained deploy bundle
-COPY --from=deploy /app ./
+# Copy everything (node_modules already pruned to prod-only in build stage)
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/apps/api/package.json ./apps/api/
+COPY --from=build /app/packages/database/node_modules ./packages/database/node_modules
+COPY --from=build /app/packages/database/prisma ./packages/database/prisma
+COPY --from=build /app/packages/database/package.json ./packages/database/
+COPY --from=build /app/packages/types/src ./packages/types/src
+COPY --from=build /app/packages/types/package.json ./packages/types/
+COPY package.json pnpm-workspace.yaml ./
 
 # Run migrations then start
 CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy --schema packages/database/prisma/schema.prisma && node apps/api/dist/main.js"]
