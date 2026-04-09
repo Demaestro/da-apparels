@@ -10,7 +10,7 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/database/package.json ./packages/database/
 COPY packages/types/package.json ./packages/types/
 
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm install --frozen-lockfile
 # Ensure optional node_modules dirs exist so COPY --from never fails
 RUN mkdir -p packages/database/node_modules packages/types/node_modules
 
@@ -50,8 +50,8 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/database/package.json ./packages/database/
 COPY packages/types/package.json ./packages/types/
 
-# Production-only install (no devDeps)
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+# Production-only install (no devDeps) — run scripts so Prisma engines are set up
+RUN pnpm install --frozen-lockfile --prod
 
 # Copy compiled output
 COPY --from=build /app/apps/api/dist ./apps/api/dist

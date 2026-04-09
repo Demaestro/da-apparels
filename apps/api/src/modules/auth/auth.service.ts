@@ -9,7 +9,7 @@ import { InjectQueue } from "@nestjs/bull";
 import type { Queue } from "bull";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
-import * as bcrypt from "bcrypt";
+import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
 import { PrismaService } from "../../lib/prisma.service";
 import type { RegisterDto } from "./dto/register.dto";
